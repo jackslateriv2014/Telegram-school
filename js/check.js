@@ -447,9 +447,16 @@ var Check = (function () {
         '<div class="row-sub">' + (late ? '<span style="color:var(--warn)">не проверено</span>' : 'проверка ДЗ') + '</div></div>' +
         '<button class="btn sm" data-act="go" data-screen="t.check" data-id="' + esc(l.id) + '">Проверить</button></div>');
     });
-    if (!rows.length) return '';
-    return '<div class="section-title">' + icon('clipboard', 15) + ' Проверка ДЗ<span class="grow"></span><a data-act="go" data-screen="t.checks">Все проверки</a></div>' +
-      '<div class="card flat">' + rows.join('') + '</div>';
+    // Ближайшие проверки и оценки — какие классы и когда
+    var next = (d.nextChecks || []).map(function (l) {
+      return '<div class="row tap" data-act="go" data-screen="t.lesson" data-id="' + esc(l.id) + '"><div class="time-col">' + l.start + '<small>' + esc(l.date === Logic.util.addDays(d.today, 1) ? 'завтра' : UI.WD_SHORT[UI.wdIndex(l.date)] + ' ' + (+l.date.slice(8, 10)) + '.' + l.date.slice(5, 7)) + '</small></div>' +
+        '<div class="row-main"><div class="row-title"><b>' + esc(l.class_name) + '</b> · ' + esc(l.subject) + '</div><div class="row-sub">проверка ДЗ' + (d.askGrade ? ' и оценки' : '') + '</div></div>' +
+        '<span class="chev">' + icon('chev', 16) + '</span></div>';
+    });
+    if (!rows.length && !next.length) return '';
+    return '<div class="section-title">' + icon('clipboard', 15) + ' Проверки и оценки<span class="grow"></span><a data-act="go" data-screen="t.checks">Календарь</a></div>' +
+      (rows.length ? '<div class="card flat">' + rows.join('') + '</div>' : '<div class="card sub" style="padding:12px 14px">Сегодня проверять нечего ✓</div>') +
+      (next.length ? '<div class="sub" style="margin:2px 4px 6px">Ближайшие:</div><div class="card flat">' + next.join('') + '</div>' : '');
   }
   function prefetchList(d) {
     return (d.checks || []).map(function (l) { return { key: 't.check', params: { id: l.id } }; }).concat([{ key: 't.checks', params: {} }]);

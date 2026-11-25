@@ -14,12 +14,24 @@
     if (withNone) o.unshift({ value: '', label: 'Без класса' });
     return o;
   }
+  // «Мои предметы / Все уроки»: учитель видит только свои предметы (Настройки → Мои предметы и проверка ДЗ)
+  S.allLessons = localStorage.getItem('uchpom_all_lessons') === '1';
+  function mineToggle(d) {
+    if (!d.mine || !d.mine.length) return '';
+    return '<div class="seg mine-seg"><button data-act="mineAll" data-v="0" class="' + (S.allLessons ? '' : 'on') + '">Мои: ' + esc(d.mine.join(', ')) + '</button>' +
+      '<button data-act="mineAll" data-v="1" class="' + (S.allLessons ? 'on' : '') + '">Все уроки</button></div>';
+  }
+  App.action('mineAll', function (el) {
+    S.allLessons = el.dataset.v === '1';
+    localStorage.setItem('uchpom_all_lessons', S.allLessons ? '1' : '0');
+    App.reload();
+  });
   var WEEKDAY_OPTIONS = UI.WD.map(function (n, i) { return { value: i + 1, label: n.charAt(0).toUpperCase() + n.slice(1) }; });
 
   // ═════════════════════════ Сегодня ═════════════════════════
   App.screen('t.today', {
     title: null, live: true,
-    load: function () { return Api.call('t.home').then(function (d) { S.pending = d.pending; return d; }); },
+    load: function () { return Api.call('t.home', { all: S.allLessons }).then(function (d) { S.pending = d.pending; return d; }); },
     prefetch: function (d) { return Check.prefetchList(d); },
     render: function (d) {
       var todays = d.upcoming.filter(function (l) { return l.date === d.today; });
@@ -39,7 +51,7 @@
         '<span class="chev">' + icon('chev', 16) + '</span></div>');
       if (alerts.length) html += '<div class="card flat">' + alerts.join('') + '</div>';
       html += Check.homeCard(d);
-      html += '<div class="section-title">Уроки сегодня<span class="grow"></span><a data-act="tab" data-screen="t.week">Вся неделя</a></div>';
+      html += '<div class="section-title">Уроки сегодня<span class="grow"></span><a data-act="tab" data-screen="t.week">Вся неделя</a></div>' + mineToggle(d);
       html += todays.length
         ? '<div class="card flat">' + todays.map(function (l) { return Views.lessonRow(l, { screen: 't.lesson', showClass: true, teacher: true }); }).join('') + '</div>'
         : '<div class="card empty">' + icon('calendar', 28) + '<div>Сегодня уроков нет</div></div>';
@@ -89,7 +101,9 @@
       if (d.top) html += '<div class="card flat"><div class="row tap" data-act="go" data-screen="t.top" data-params="' + esc(JSON.stringify({ classId: d.cls.id })) + '">' +
         icon('trophy') + '<div class="row-main"><div class="row-title">Рейтинг класса</div><div class="row-sub">' + (d.top.enabled ? 'Включён · топ-' + d.top.size : 'Выключен — ученики не видят') + '</div></div><span class="chev">' + icon('chev', 16) + '</span></div>' +
         '<div class="row tap" data-act="go" data-screen="t.goal" data-params="' + esc(JSON.stringify({ classId: d.cls.id })) + '">' + icon('users') +
-        '<div class="row-main"><div class="row-title">Цель класса</div><div class="row-sub">Общая копилка баллов на приз</div></div><span class="chev">' + icon('chev', 16) + '</span></div></div>';
+        '<div class="row-main"><div class="row-title">Цель класса</div><div class="row-sub">Общая копилка баллов на приз</div></div><span class="chev">' + icon('chev', 16) + '</span></div>' +
+        '<div class="row tap" data-act="go" data-screen="t.stats" data-params="' + esc(JSON.stringify({ classId: d.cls.id })) + '">' + icon('list') +
+        '<div class="row-main"><div class="row-title">Посещаемость и оценки</div><div class="row-sub">Таблица за месяц по каждому ученику</div></div><span class="chev">' + icon('chev', 16) + '</span></div></div>';
       if (!d.cls.virtual) {
         html += '<div class="section-title">Класс</div><div class="card flat">' +
           '<div class="row tap" data-act="schedule">' + icon('calendar') + '<div class="row-main">Расписание класса</div><span class="chev">' + icon('chev', 16) + '</span></div>' +
@@ -314,7 +328,7 @@
   S.week = { from: '', classId: '' };
   App.screen('t.week', {
     title: 'Расписание',
-    load: function (p) { return Api.call('t.week', { from: p.from || S.week.from, classId: p.classId !== undefined ? p.classId : S.week.classId }); },
+    load: function (p) { return Api.call('t.week', { from: p.from || S.week.from, classId: p.classId !== undefined ? p.classId : S.week.classId, all: S.allLessons }); },
     render: function (d) {
       S.week.from = d.from; S.week.classId = d.classId;
       var html = '<div class="card" style="display:flex;align-items:center;gap:8px;padding:8px">' +
@@ -329,7 +343,7 @@
       html += '<div class="btn-row"><button class="btn ghost sm" data-act="oneoff">' + icon('plus', 18) + ' Разовый урок</button>' +
         '<button class="btn plain sm" data-act="templates">' + icon('calendar', 18) + ' Шаблон недели</button>' +
         '<button class="btn plain sm" data-act="go" data-screen="t.import" data-params="' + esc(JSON.stringify({ kind: 'topics', classId: d.classId || '' })) + '">' + icon('upload', 18) + ' Темы и ДЗ</button></div>';
-      html += Views.byDays(d.lessons, d.today, { screen: 't.lesson', showClass: !d.classId, teacher: true }, { from: d.from });
+      html += mineToggle(d) + Views.byDays(d.lessons, d.today, { screen: 't.lesson', showClass: !d.classId, teacher: true }, { from: d.from });
       return html;
     },
     actions: {
@@ -775,9 +789,9 @@
           '<label class="switch"><input type="checkbox" data-change="ps" data-key="' + key + '"' + (t(s[key]) ? ' checked' : '') + '><span></span></label></div>';
       };
       var html = App.roleSwitcher();
-      html += '<div class="section-title">' + icon('clipboard', 15) + ' Проверка ДЗ</div><div class="card flat">' +
-        '<div class="row tap" data-act="go" data-screen="t.checks">' + icon('calendar') + '<div class="row-main"><div class="row-title">Календарь и настройка проверок</div>' +
-        '<div class="row-sub">' + esc(s.check_subjects ? 'Предметы: ' + s.check_subjects : 'Выберите свои предметы и дни проверки') + '</div></div><span class="chev">' + icon('chev', 16) + '</span></div></div>';
+      html += '<div class="section-title">' + icon('clipboard', 15) + ' Мои предметы и проверка ДЗ</div><div class="card flat">' +
+        '<div class="row tap" data-act="go" data-screen="t.checks">' + icon('calendar') + '<div class="row-main"><div class="row-title">Мои предметы, дни проверки, напоминания</div>' +
+        '<div class="row-sub">' + esc(s.check_subjects ? 'Мои предметы: ' + s.check_subjects + ' — в расписании видны только они' : 'Выберите свои предметы — в расписании останутся только они') + '</div></div><span class="chev">' + icon('chev', 16) + '</span></div></div>';
       html += '<div class="section-title">' + icon('upload', 15) + ' Импорт из emaktab</div><div class="card flat">' +
         [['students', 'Список учеников', 'один раз в начале года'], ['schedule', 'Расписание', 'шаблон недели'], ['topics', 'Темы и домашние задания', 'по датам или по КТП']]
           .map(function (k) {

@@ -30,12 +30,14 @@ var App = (function () {
     student: [
       { key: 's.home', label: 'Главная', icon: 'home' },
       { key: 's.week', label: 'Уроки', icon: 'book' },
+      { key: 's.stats', label: 'Оценки', icon: 'list' },
       { key: 's.rewards', label: 'Награды', icon: 'gift' },
       { key: 's.history', label: 'История', icon: 'history' }
     ],
     parent: [
       { key: 'p.summary', label: 'Сводка', icon: 'home' },
       { key: 'p.lessons', label: 'Уроки', icon: 'book' },
+      { key: 'p.stats', label: 'Оценки', icon: 'list' },
       { key: 'p.points', label: 'Баллы', icon: 'coin' }
     ]
   };

@@ -17,7 +17,7 @@
 var Logic = (function () {
   'use strict';
 
-  var VERSION = '0.6.0';
+  var VERSION = '0.7.0';
 
   // ───────────────────────── Структура листов таблицы ─────────────────────────
   // [ключ в коде, заголовок столбца в таблице, тип]
@@ -121,7 +121,7 @@ var Logic = (function () {
   // Действия, которые только читают данные (сервер выполняет их без блокировки — быстрее).
   var READ_ACTIONS = {
     'bootstrap': 1, 't.home': 1, 't.class': 1, 't.student': 1, 't.week': 1, 't.lesson': 1,
-    't.rewards': 1, 't.checks': 1, 't.journal': 1, 't.mass.preview': 1, 't.goal': 1, 's.classmate': 1, 's.shop': 1, 's.home': 1, 's.week': 1, 's.lesson': 1, 's.rewards': 1, 's.history': 1, 'p.home': 1
+    't.rewards': 1, 't.checks': 1, 't.journal': 1, 't.mass.preview': 1, 't.goal': 1, 's.classmate': 1, 's.shop': 1, 't.stats': 1, 's.stats': 1, 'p.stats': 1, 's.home': 1, 's.week': 1, 's.lesson': 1, 's.rewards': 1, 's.history': 1, 'p.home': 1
   };
 
   // ───────────────────────── Маленькие помощники ─────────────────────────
@@ -975,16 +975,25 @@ var Logic = (function () {
   }
 
   // ─── Учитель: главная ───
-  A['t.home'] = function (db, ctx) {
+  // Учитель видит только свои предметы (Настройки → Мои предметы). p.all — показать все уроки.
+  function onlyMine(settings, lessons, all) {
+    return all || !checkSubjects(settings).length ? lessons : lessons.filter(function (l) { return subjectChecked(settings, l.subject); });
+  }
+  A['t.home'] = function (db, ctx, p) {
+    p = p || {};
     var counts = markCounts(db);
-    var upcoming = decorateChecks(db, ctx.settings, lessonsInRange(db, ctx.today, 7, null)).map(function (l) {
+    var upcoming = onlyMine(ctx.settings, decorateChecks(db, ctx.settings, lessonsInRange(db, ctx.today, 7, null)), p.all).map(function (l) {
       l.marked = counts[l.id] || 0; return l;
     });
     // Проверки ДЗ: сегодня и пропущенные за последнюю неделю
     var checks = decorateChecks(db, ctx.settings, lessonsInRange(db, addDays(ctx.today, -7), 8, null))
       .filter(function (l) { return l.check === 'due'; });
+    // Ближайшие проверки (на неделю вперёд) — чтобы заранее видеть, какие классы и когда
+    var nextChecks = decorateChecks(db, ctx.settings, lessonsInRange(db, addDays(ctx.today, 1), 7, null))
+      .filter(function (l) { return l.check === 'due'; }).slice(0, 5);
     return {
-      today: ctx.today, settings: ctx.settings, classes: classList(db), upcoming: upcoming, checks: checks,
+      today: ctx.today, settings: ctx.settings, classes: classList(db), upcoming: upcoming, checks: checks, nextChecks: nextChecks,
+      mine: checkSubjects(ctx.settings), all: !!p.all, askGrade: truthy(ctx.settings.check_ask_grade),
       pending: db.all('requests').filter(function (r) { return r.status === 'pending'; }).length,
       unassigned: studentsOfClass(db, '').length
     };
@@ -1217,7 +1226,8 @@ var Logic = (function () {
     var counts = markCounts(db);
     return {
       from: from, today: ctx.today, classId: p.classId || '',
-      lessons: decorateChecks(db, ctx.settings, lessonsInRange(db, from, 7, classIds)).map(function (l) { l.marked = counts[l.id] || 0; return l; }),
+      lessons: onlyMine(ctx.settings, decorateChecks(db, ctx.settings, lessonsInRange(db, from, 7, classIds)), p.all).map(function (l) { l.marked = counts[l.id] || 0; return l; }),
+      mine: checkSubjects(ctx.settings), all: !!p.all,
       templates: sortBy(db.all('templates').filter(function (t) { return !classIds || same(t.class_id, p.classId); }),
         function (t) { return num(t.weekday) + ' ' + t.start; }).map(function (t) {
         var c = byId(db, 'classes', t.class_id);
@@ -1898,6 +1908,96 @@ var Logic = (function () {
     }
     saveLook(db, st, look);
     return { look: lookOf(st, owned) };
+  };
+
+  // ─── Статистика: посещаемость и оценки за месяц ───
+  // Учителю — сетка «ученики × уроки» по классу (только его предметы, можно выбрать любой предмет).
+  // Ученику и родителю — только своя строка (чужие отметки не видны).
+  function monthOf(p, ctx) { return /^\d{4}-\d{2}$/.test(str(p.month)) ? str(p.month) : ctx.today.slice(0, 7); }
+  function monthDays(month) { var d = parseDate(month + '-01'); return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); }
+  function shiftMonth(month, n) { var d = parseDate(month + '-01'); d.setMonth(d.getMonth() + n); return fmtDate(d).slice(0, 7); }
+  function monthLessons(db, classId, month) {
+    return lessonsInRange(db, month + '-01', monthDays(month), [classId]).filter(function (l) { return l.status !== 'cancelled'; });
+  }
+  function markIndex(db, lessons) {
+    var ids = {}, m = {};
+    lessons.forEach(function (l) { if (l.id.indexOf('v~') !== 0) ids[l.id] = 1; });
+    db.all('marks').forEach(function (k) { if (ids[k.lesson_id]) m[k.lesson_id + '|' + k.student_id] = k; });
+    return m;
+  }
+  function emptyCounts() { return { present: 0, late: 0, excused: 0, absent: 0, grades: { 5: 0, 4: 0, 3: 0, 2: 0 }, gradeSum: 0, gradeN: 0 }; }
+  function addCell(c, mk) {
+    if (!mk) return;
+    if (c[mk.attendance] !== undefined) c[mk.attendance]++;
+    var g = num(mk.grade);
+    if (g >= 2 && g <= 5) { c.grades[g]++; c.gradeSum += g; c.gradeN++; }
+  }
+  function finishCounts(c) {
+    var att = c.present + c.late + c.absent;
+    c.pct = att ? Math.round((c.present + c.late) / att * 100) : null;
+    c.avg = c.gradeN ? Math.round(c.gradeSum / c.gradeN * 10) / 10 : null;
+    delete c.gradeSum;
+    return c;
+  }
+  function cellOf(mk, l, today) {
+    if (!mk) return { a: '', g: 0, h: '', future: l.date > today };
+    return { a: mk.attendance || '', g: num(mk.grade), h: mk.homework || '', future: false };
+  }
+  function lessonHead(l) { return { id: l.id, date: l.date, start: l.start, subject: l.subject }; }
+  A['t.stats'] = function (db, ctx, p) {
+    var classes = classList(db), cls = byId(db, 'classes', p.classId) || (classes[0] && byId(db, 'classes', classes[0].id));
+    if (!cls) return { classes: classes, cls: null };
+    var month = monthOf(p, ctx), all = monthLessons(db, cls.id, month);
+    var subjects = [];
+    all.forEach(function (l) { if (subjects.indexOf(l.subject) < 0) subjects.push(l.subject); });
+    var subject = str(p.subject);
+    var lessons = all.filter(function (l) {
+      return subject === '*' ? true : subject ? normText(l.subject) === normText(subject) : subjectChecked(ctx.settings, l.subject);
+    });
+    var idx = markIndex(db, lessons), total = emptyCounts();
+    var rows = studentsOfClass(db, cls.id).map(function (s) {
+      var c = emptyCounts();
+      var cells = lessons.map(function (l) { var mk = idx[l.id + '|' + s.id]; addCell(c, mk); addCell(total, mk); return cellOf(mk, l, ctx.today); });
+      return { id: s.id, name: s.name, cells: cells, sum: finishCounts(c) };
+    });
+    rows.sort(function (a, b) { return (b.sum.pct === null ? -1 : b.sum.pct) - (a.sum.pct === null ? -1 : a.sum.pct) || (b.sum.avg || 0) - (a.sum.avg || 0) || (a.name < b.name ? -1 : 1); });
+    return { classes: classes, cls: { id: cls.id, name: cls.name }, month: month, prev: shiftMonth(month, -1),
+      next: month < ctx.today.slice(0, 7) ? shiftMonth(month, 1) : '', today: ctx.today,
+      subjects: subjects, subject: subject, mine: checkSubjects(ctx.settings),
+      lessons: lessons.map(lessonHead), rows: rows, total: finishCounts(total) };
+  };
+  function pupilStats(db, ctx, st, month, show) {
+    var lessons = st.class_id ? monthLessons(db, st.class_id, month) : [];
+    var idx = markIndex(db, lessons), c = emptyCounts(), bySubj = {};
+    var cells = lessons.map(function (l) {
+      var mk = idx[l.id + '|' + st.id];
+      addCell(c, mk);
+      if (mk && num(mk.grade) >= 2) { var b = bySubj[l.subject] = bySubj[l.subject] || { subject: l.subject, sum: 0, n: 0 }; b.sum += num(mk.grade); b.n++; }
+      var cell = cellOf(mk, l, ctx.today);
+      if (!show.attendance) cell.a = '';
+      if (!show.homework) { cell.g = 0; cell.h = ''; }
+      return cell;
+    });
+    var stats = statsFor(db, [st.id], '')[st.id];
+    var sum = finishCounts(c);
+    if (!show.homework) { sum.grades = null; sum.avg = null; }
+    return { month: month, prev: shiftMonth(month, -1), next: month < ctx.today.slice(0, 7) ? shiftMonth(month, 1) : '', today: ctx.today,
+      name: st.name, lessons: lessons.map(lessonHead), cells: cells, sum: sum, show: show,
+      streak: show.attendance ? stats.attStreak : null,
+      subjects: show.homework ? Object.keys(bySubj).map(function (k) { var b = bySubj[k]; return { subject: k, avg: Math.round(b.sum / b.n * 10) / 10, n: b.n }; })
+        .sort(function (a, b) { return a.subject < b.subject ? -1 : 1; }) : [] };
+  }
+  A['s.stats'] = function (db, ctx, p) {
+    return pupilStats(db, ctx, activeStudent(db, ctx.studentId), monthOf(p, ctx), { attendance: true, homework: true });
+  };
+  A['p.stats'] = function (db, ctx, p) {
+    var kids = ctx.childIds.map(function (id) { return activeStudent(db, id); }).filter(Boolean);
+    if (!kids.length) fail('Ребёнок не найден.');
+    var st = kids.find(function (k) { return same(k.id, p.studentId); }) || kids[0], s = ctx.settings;
+    var out = pupilStats(db, ctx, st, monthOf(p, ctx), { attendance: truthy(s.parent_show_attendance), homework: truthy(s.parent_show_homework) });
+    out.children = kids.map(function (k) { return { id: k.id, name: k.name }; });
+    out.childId = st.id;
+    return out;
   };
 
   // ─── Ученик ───
