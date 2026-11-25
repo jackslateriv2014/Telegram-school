@@ -117,10 +117,11 @@ var Views = (function () {
   /** Блок «Лучшие». forTeacher — показывать значения (только учителю). */
   function top(t, forTeacher) {
     var mode = { points: 'по заработанным баллам', rating: 'по успеваемости', manual: 'выбор учителя' }[t.mode] +
-      (t.mode !== 'manual' ? (t.period === 'month' ? ' · текущий месяц' : ' · за всё время') : '');
+      (t.mode !== 'manual' ? ({ week: ' · эта неделя', month: ' · текущий месяц' }[t.period] || ' · за всё время') : '');
     var items = t.items.length ? t.items.map(function (x) {
       return '<div class="top-item' + (x.me ? ' me' : '') + '"><div class="place p' + x.place + '">' + x.place + '</div>' +
-        '<div class="row-main">' + esc(x.name) + (x.me ? ' <span class="pill accent">это вы</span>' : '') + '</div>' +
+        '<div class="row-main">' + esc(x.name) + (x.me ? ' <span class="pill accent">это вы</span>' : '') +
+        (x.pinned && t.mode !== 'manual' ? ' <span class="pill warn">' + icon('star', 12) + ' выбор учителя</span>' : '') + '</div>' +
         (forTeacher && x.value !== null && x.value !== undefined ? '<span class="sub">' + x.value + (t.mode === 'rating' ? ' / 100' : ' б.') + '</span>' : '') + '</div>';
     }).join('') : '<div class="empty" style="padding:14px">Пока никого — всё впереди</div>';
     return '<div class="card"><h3>' + icon('trophy', 18) + ' Лучшие · топ-' + t.size + '</h3><div class="sub" style="margin-bottom:6px">' + mode + '</div>' + items + '</div>';

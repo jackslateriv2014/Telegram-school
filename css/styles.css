@@ -230,6 +230,12 @@ textarea.input { resize: vertical; min-height: 76px; line-height: 1.4; }
 .checklist label + label { border-top: 1px solid var(--line); }
 .checklist input { width: 20px; height: 20px; accent-color: var(--ok); }
 .checklist input:checked + span { color: var(--hint); text-decoration: line-through; }
+.picklist { padding: 2px 14px; }
+.picklist label { display: flex; align-items: center; gap: 10px; padding: 10px 0; cursor: pointer; }
+.picklist label + label { border-top: 1px solid var(--line); }
+.picklist input { -webkit-appearance: none; appearance: none; width: 22px; height: 22px; flex: none; margin: 0; border: 2px solid var(--hint); border-radius: 6px; background: var(--card) center / 14px no-repeat; cursor: pointer; }
+.picklist input:checked { background-color: var(--accent); border-color: var(--accent); background-image: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27white%27 stroke-width=%273.2%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpath d=%27M5 12.5l4.5 4.5L19 7.5%27/%3E%3C/svg%3E"); }
+.picklist .pill { margin-left: auto; }
 .textblock { white-space: pre-wrap; word-break: break-word; }
 .material { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 12px; background: var(--muted-accent); color: var(--accent); cursor: pointer; }
 .material .row-main { color: var(--text); }

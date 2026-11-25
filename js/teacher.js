@@ -86,7 +86,8 @@
       }).join('') + '</div>' : '<div class="card empty">' + icon('users', 28) + '<div>В классе пока нет учеников</div></div>';
       if (!d.cls.virtual) html += '<div class="btn-row"><button class="btn ghost" data-act="addStudents">' + icon('plus') + ' Добавить учеников</button>' +
         '<button class="btn plain" data-act="go" data-screen="t.import" data-params="' + esc(JSON.stringify({ kind: 'students', classId: d.cls.id })) + '">' + icon('upload', 18) + ' Из emaktab</button></div>';
-      if (d.top) html += topSettings(d);
+      if (d.top) html += '<div class="card flat"><div class="row tap" data-act="go" data-screen="t.top" data-params="' + esc(JSON.stringify({ classId: d.cls.id })) + '">' +
+        icon('trophy') + '<div class="row-main"><div class="row-title">Рейтинг класса</div><div class="row-sub">' + (d.top.enabled ? 'Включён · топ-' + d.top.size : 'Выключен — ученики не видят') + '</div></div><span class="chev">' + icon('chev', 16) + '</span></div></div>';
       if (!d.cls.virtual) {
         html += '<div class="section-title">Класс</div><div class="card flat">' +
           '<div class="row tap" data-act="schedule">' + icon('calendar') + '<div class="row-main">Расписание класса</div><span class="chev">' + icon('chev', 16) + '</span></div>' +
@@ -111,9 +112,36 @@
         UI.confirm('Удалить класс «' + d.cls.name + '»? Ученики перейдут в «Без класса», история баллов сохранится.', 'Удалить', true)
           .then(function (ok) { if (ok) App.run('t.classes.delete', { id: d.cls.id }, { ok: 'Класс удалён', reload: false }).then(function () { App.back(); App.reload(); }); });
       },
-      schedule: function (el, d) { App.go('t.templates', { classId: d.cls.id }); },
+      schedule: function (el, d) { App.go('t.templates', { classId: d.cls.id }); }
+    }
+  });
+
+  // ═════════════════════════ Рейтинг (топ лучших) ═════════════════════════
+  // Награды → Рейтинг. Класс выбирается сверху; настройки сохраняются сразу.
+  App.screen('t.top', {
+    title: 'Рейтинг',
+    load: function (p) {
+      var id = p.classId || S.topClass;
+      var open = function (cid) { return Api.call('t.class', { id: cid }); };
+      if (id) return open(id).catch(function () { S.topClass = ''; return Api.call('t.home').then(first); });
+      return Api.call('t.home').then(first);
+      function first(h) { return h.classes[0] ? open(h.classes[0].id) : { cls: null, classes: [] }; }
+    },
+    render: function (d) {
+      if (!d.cls) return '<div class="card empty">' + icon('users', 28) + '<div>Сначала создайте класс</div></div>';
+      S.topClass = d.cls.id;
+      var html = d.classes.length > 1 ? '<div class="chips wrap">' + d.classes.map(function (c) {
+        return '<button class="chip' + (c.id === d.cls.id ? ' on' : '') + '" data-act="cls" data-id="' + esc(c.id) + '">' + esc(c.name) + '</button>';
+      }).join('') + '</div>' : '';
+      return html + topSettings(d);
+    },
+    actions: {
+      cls: function (el) { S.topClass = el.dataset.id; App.replaceParams({ classId: el.dataset.id }); App.reload(); },
       topEnabled: function (el, d) { saveTop(d, { enabled: el.checked }); },
-      topSize: function (el, d) { saveTop(d, { size: +el.dataset.v }); },
+      topSize: function (el, d) {
+        var size = +el.dataset.v;
+        saveTop(d, { size: size, manual: d.top.manual.slice(0, size) });
+      },
       topMode: function (el, d) { saveTop(d, { mode: el.dataset.v }); },
       topPeriod: function (el, d) { saveTop(d, { period: el.dataset.v }); },
       topPick: function (el, d) {
@@ -129,33 +157,36 @@
   });
 
   function topSettings(d) {
-    var t = d.top;
+    var t = d.top, manual = t.mode === 'manual';
     var seg = function (act, items, val) {
       return '<div class="seg">' + items.map(function (x) {
         return '<button data-act="' + act + '" data-v="' + x[0] + '" class="' + (String(x[0]) === String(val) ? 'on' : '') + '">' + x[1] + '</button>';
       }).join('') + '</div>';
     };
-    var html = '<div class="section-title">' + icon('trophy', 15) + ' Топ лучших для учеников</div><div class="card">' +
+    var html = '<div class="card">' +
       '<div class="toggle-row" style="padding-top:0"><div class="row-main"><b>Показывать ученикам</b><div class="sub">' +
-      (t.enabled ? 'Ученики класса видят блок лучших (только имена и места)' : 'Выключено — каждый видит только свой прогресс') + '</div></div>' +
+      (t.enabled ? 'Ученики класса видят топ (только имена и места, без баллов)' : 'Выключено — каждый видит только свой прогресс') + '</div></div>' +
       '<label class="switch"><input type="checkbox" data-change="topEnabled"' + (t.enabled ? ' checked' : '') + '><span></span></label></div>' +
-      '<div style="' + (t.enabled ? '' : 'opacity:.55') + '"><div class="sub" style="margin:8px 2px 6px">Размер</div>' +
+      '<div class="sub" style="margin:8px 2px 6px">Сколько мест</div>' +
       seg('topSize', [[3, 'Топ-3'], [5, 'Топ-5'], [10, 'Топ-10']], t.size) +
-      '<div class="sub" style="margin:0 2px 6px">Принцип</div>' +
-      seg('topMode', [['points', 'По баллам'], ['rating', 'Успеваемость'], ['manual', 'Вручную']], t.mode);
-    if (t.mode !== 'manual') {
-      html += '<div class="sub" style="margin:0 2px 6px">Период</div>' + seg('topPeriod', [['month', 'Текущий месяц'], ['all', 'Всё время']], t.period) +
-        '<div class="sub">' + (t.mode === 'rating' ? 'Рейтинг = ДЗ 50% + посещаемость 30% + активность 20%.' :
+      '<div class="sub" style="margin:0 2px 6px">Как считать</div>' +
+      seg('topMode', [['points', 'По баллам'], ['rating', 'Успеваемость'], ['manual', 'Только вручную']], t.mode);
+    if (!manual) {
+      html += '<div class="sub" style="margin:0 2px 6px">За какой период</div>' +
+        seg('topPeriod', [['week', 'Неделя'], ['month', 'Месяц'], ['all', 'Всё время']], t.period) +
+        '<div class="sub">' + (t.mode === 'rating' ? 'Успеваемость = ДЗ 50% + посещаемость 30% + активность 20%.' :
           'Считаются заработанные баллы — покупка наград место в топе не уменьшает.') + '</div>';
-    } else {
-      html += '<div class="sub" style="margin:0 2px 6px">Отметьте учеников по порядку мест (до ' + t.size + ')</div><div class="checklist">' +
-        d.students.map(function (s) {
-          var pos = t.manual.indexOf(String(s.id));
-          return '<label><input type="checkbox" data-change="topPick" data-id="' + esc(s.id) + '"' + (pos >= 0 ? ' checked' : '') + '><span style="flex:1">' +
-            esc(s.name) + '</span>' + (pos >= 0 ? '<span class="pill accent">' + (pos + 1) + ' место</span>' : '') + '</label>';
-        }).join('') + '</div>';
     }
-    html += '</div></div>';
+    html += '</div>';
+    html += '<div class="section-title">' + icon('star', 15) + (manual ? ' Кто в топе (по порядку мест)' : ' Закрепить в топе вручную') + '</div>' +
+      '<div class="sub" style="margin:0 4px 8px">' + (manual ? 'Отметьте учеников по порядку мест, до ' + t.size + '.'
+        : 'Необязательно. Отмеченные всегда стоят наверху с пометкой «выбор учителя», остальные места — ' +
+          (t.mode === 'rating' ? 'по успеваемости' : 'по баллам') + '. Можно отметить до ' + t.size + '.') + '</div>' +
+      '<div class="card picklist">' + d.students.map(function (s) {
+        var pos = t.manual.indexOf(String(s.id));
+        return '<label><input type="checkbox" data-change="topPick" data-id="' + esc(s.id) + '"' + (pos >= 0 ? ' checked' : '') + '><span>' +
+          esc(s.name) + '</span>' + (pos >= 0 ? '<span class="pill accent">' + (manual ? (pos + 1) + ' место' : icon('star', 13) + ' закреплён') + '</span>' : '') + '</label>';
+      }).join('') + '</div>';
     html += '<div class="sub" style="margin:4px 4px 8px">' + (t.enabled ? 'Так видят ученики:' : 'Предпросмотр (ученики пока не видят):') + '</div>' + Views.top(t, true);
     return html;
   }
@@ -216,7 +247,7 @@
       delPoint: function (el, d) {
         var l = d.ledger.find(function (x) { return x.id === el.dataset.id; });
         if (!l) return;
-        UI.confirm('Удалить запись «' + l.reason + '» (' + UI.signed(l.amount) + ')? Баланс пересчитается. Отменить удаление нельзя.', 'Удалить', true)
+        UI.confirm('Удалить запись «' + l.reason + '» (' + UI.signed(l.amount) + ')? Баланс пересчитается. Вернуть можно в «Награды → История изменений».', 'Удалить', true)
           .then(function (ok) { if (ok) App.run('t.points.delete', { id: l.id }, { ok: 'Запись удалена' }); });
       },
       saveNotes: function (el, d) {
@@ -498,6 +529,8 @@
       '<button class="btn ghost sm" data-act="allHw">' + icon('check', 17) + ' ДЗ: всем ✓</button></div>' +
       '<div class="marks-head"><span>Ученик</span><span>Был</span><span>ДЗ</span><span>Активность</span></div>' +
       '<div class="card flat" id="mlist">' + d.students.map(markRow).join('') + '</div>' +
+      (d.students.some(function (s) { return s.mark && (s.mark.attendance || s.mark.homework || s.mark.activity || s.mark.grade || s.mark.uniform); })
+        ? '<button class="btn plain block sm" data-act="go" data-screen="t.undo" data-params="' + esc(JSON.stringify({ lessonId: d.lesson.id })) + '">' + icon('undo', 17) + ' Отменить отметки этого урока</button>' : '') +
       '<div class="sub" style="padding:2px 4px 0">Нажатие переключает отметку: <b>Был</b> ✓ → Н → ОП (опоздал) → УП (уважит.); <b>ДЗ</b> ✓ → ½ → ✗. ' +
       'Свайп по строке вправо — +1 активность, влево — −1. Баллы: присутствие +' + r.attendance + ', ДЗ +' + r.homework + ', активность +' + r.activity + '.</div>' +
       '<div class="sticky-bottom"><div style="display:flex;align-items:center;gap:8px;padding:0 4px 8px"><div class="row-main sub" id="msum">' + summaryText() + '</div>' +
@@ -650,7 +683,9 @@
       var pending = d.requests.filter(function (r) { return r.status === 'pending'; });
       S.pending = pending.length;
       var seg = S.rwSeg || (pending.length ? 'requests' : 'shop');
-      var html = '<div class="seg"><button data-act="seg" data-seg="requests" class="' + (seg === 'requests' ? 'on' : '') + '">Заявки' + (pending.length ? ' · ' + pending.length : '') + '</button>' +
+      var html = '<div class="btn-row" style="margin-bottom:12px"><button class="btn ghost sm" data-act="go" data-screen="t.top">' + icon('trophy', 17) + ' Рейтинг</button>' +
+        '<button class="btn ghost sm" data-act="go" data-screen="t.journal">' + icon('undo', 17) + ' История изменений</button></div>' +
+        '<div class="seg"><button data-act="seg" data-seg="requests" class="' + (seg === 'requests' ? 'on' : '') + '">Заявки' + (pending.length ? ' · ' + pending.length : '') + '</button>' +
         '<button data-act="seg" data-seg="shop" class="' + (seg === 'shop' ? 'on' : '') + '">Магазин</button>' +
         '<button data-act="seg" data-seg="rules" class="' + (seg === 'rules' ? 'on' : '') + '">Правила</button></div>';
       if (seg === 'requests') {

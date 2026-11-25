@@ -184,6 +184,7 @@ var Demo = (function () {
     };
     t('t.requests.decide', { id: req(s2[1], r1, 'Выбрать место в классе на неделю', 25).id, approve: true });
     req(s2[3], r2, 'Задача для разбора на уроке', 15);
+    db.data.journal = []; // «История изменений» в демо начинается с чистого листа
   }
 
   return {

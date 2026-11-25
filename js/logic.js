@@ -17,7 +17,7 @@
 var Logic = (function () {
   'use strict';
 
-  var VERSION = '0.3.0';
+  var VERSION = '0.4.0';
 
   // ───────────────────────── Структура листов таблицы ─────────────────────────
   // [ключ в коде, заголовок столбца в таблице, тип]
@@ -66,7 +66,11 @@ var Logic = (function () {
       ['decided_at', 'Решение', 'datetime'], ['comment', 'Комментарий']] },
     invites: { sheet: 'Приглашения', cols: [
       ['code', 'Код'], ['role', 'Роль'], ['student_id', 'ID ученика'], ['max_uses', 'Макс. использований', 'num'],
-      ['uses', 'Использовано', 'num'], ['created_at', 'Создан', 'datetime'], ['active', 'Активен', 'bool']] }
+      ['uses', 'Использовано', 'num'], ['created_at', 'Создан', 'datetime'], ['active', 'Активен', 'bool']] },
+    // Журнал сохранений учителя — для кнопок «Отменить» / «Вернуть». Хранится 30 дней.
+    journal: { sheet: 'Журнал действий', cols: [
+      ['id', 'ID'], ['at', 'Когда', 'datetime'], ['action', 'Действие'], ['title', 'Что сделано'], ['ref', 'Ссылка'],
+      ['students', 'Учеников', 'num'], ['amount', 'Баллы', 'num'], ['status', 'Статус'], ['data', 'Данные для отмены (не менять)']] }
   };
 
   // Настройки по умолчанию: [параметр, значение, пояснение для учителя]
@@ -104,7 +108,7 @@ var Logic = (function () {
   // Действия, которые только читают данные (сервер выполняет их без блокировки — быстрее).
   var READ_ACTIONS = {
     'bootstrap': 1, 't.home': 1, 't.class': 1, 't.student': 1, 't.week': 1, 't.lesson': 1,
-    't.rewards': 1, 't.checks': 1, 's.home': 1, 's.week': 1, 's.lesson': 1, 's.rewards': 1, 's.history': 1, 'p.home': 1
+    't.rewards': 1, 't.checks': 1, 't.journal': 1, 't.mass.preview': 1, 's.home': 1, 's.week': 1, 's.lesson': 1, 's.rewards': 1, 's.history': 1, 'p.home': 1
   };
 
   // ───────────────────────── Маленькие помощники ─────────────────────────
@@ -138,6 +142,10 @@ var Logic = (function () {
   }
   function sortBy(arr, fn) {
     return arr.slice().sort(function (a, b) { var x = fn(a), y = fn(b); return x < y ? -1 : x > y ? 1 : 0; });
+  }
+  function plural(n, f) {
+    var a = Math.abs(n) % 100, b = a % 10;
+    return f[a > 10 && a < 20 ? 2 : b > 1 && b < 5 ? 1 : b === 1 ? 0 : 2];
   }
   function userName(u) { return str([u.first_name, u.last_name].filter(Boolean).join(' ')) || ('ID ' + u.id); }
 
@@ -434,18 +442,20 @@ var Logic = (function () {
       enabled: truthy(cls.top_enabled),
       size: [3, 5, 10].indexOf(size) >= 0 ? size : 3,
       mode: ['points', 'rating', 'manual'].indexOf(cls.top_mode) >= 0 ? cls.top_mode : 'points',
-      period: cls.top_period === 'all' ? 'all' : 'month',
+      period: ['week', 'month', 'all'].indexOf(cls.top_period) >= 0 ? cls.top_period : 'month',
       manual: str(cls.top_manual).split(',').map(function (x) { return x.trim(); }).filter(Boolean)
     };
   }
+  // Режим «Вручную» — только выбранные учителем. В остальных режимах выбранные учителем «закреплены»
+  // наверху (с пометкой «выбор учителя»), а оставшиеся места заполняются по баллам или успеваемости.
   function computeTop(db, ctx, cls) {
     var t = topSettings(cls);
-    var from = t.period === 'month' ? ctx.today.slice(0, 8) + '01' : '';
+    var from = t.period === 'month' ? ctx.today.slice(0, 8) + '01' : t.period === 'week' ? mondayOf(ctx.today) : '';
     var students = studentsOfClass(db, cls.id);
+    var pinned = t.manual.map(function (id) { return students.find(function (s) { return same(s.id, id); }); }).filter(Boolean);
     var ranked;
     if (t.mode === 'manual') {
-      ranked = t.manual.map(function (id) { return students.find(function (s) { return same(s.id, id); }); })
-        .filter(Boolean).map(function (s) { return { s: s, value: null }; });
+      ranked = pinned.map(function (s) { return { s: s, value: null, pinned: true }; });
     } else if (t.mode === 'rating') {
       var stats = statsFor(db, students.map(function (s) { return s.id; }), from);
       var maxAct = 0;
@@ -456,18 +466,22 @@ var Logic = (function () {
       ranked = students.map(function (s) { return { s: s, value: earned[s.id] || 0 }; });
     }
     if (t.mode !== 'manual') {
-      ranked = ranked.filter(function (x) { return x.value > 0; })
-        .sort(function (a, b) { return b.value - a.value || (a.s.name < b.s.name ? -1 : 1); });
+      var pin = pinned.map(function (s) { return String(s.id); });
+      var top = ranked.filter(function (x) { return pin.indexOf(String(x.s.id)) >= 0; })
+        .sort(function (a, b) { return pin.indexOf(String(a.s.id)) - pin.indexOf(String(b.s.id)); })
+        .map(function (x) { x.pinned = true; return x; });
+      ranked = top.concat(ranked.filter(function (x) { return x.value > 0 && pin.indexOf(String(x.s.id)) < 0; })
+        .sort(function (a, b) { return b.value - a.value || (a.s.name < b.s.name ? -1 : 1); }));
     }
     t.items = ranked.slice(0, t.size).map(function (x, i) {
-      return { place: i + 1, student_id: x.s.id, name: x.s.name, value: x.value };
+      return { place: i + 1, student_id: x.s.id, name: x.s.name, value: x.value, pinned: !!x.pinned };
     });
     return t;
   }
   // Ученикам и родителям — только имена и места, без чужих баллов.
   function publicTop(top, myId) {
     return { size: top.size, mode: top.mode, period: top.period, items: top.items.map(function (x) {
-      return { place: x.place, name: x.name, me: same(x.student_id, myId) };
+      return { place: x.place, name: x.name, me: same(x.student_id, myId), pinned: top.mode !== 'manual' && x.pinned };
     }) };
   }
 
@@ -512,6 +526,213 @@ var Logic = (function () {
     }
     upsertLedger(db, mark.student_id, 'streak', 'streak:' + mark.id, amount,
       'Бонус за серию: ' + streak + ' ДЗ подряд', lesson.date + ' ' + (lesson.start || '00:00'));
+  }
+
+  // ═════════════════════════ Журнал действий: «Отменить» и «Вернуть» ═════════════════════════
+  // Пока выполняется сохранение учителя, «запоминатель» (Recorder) записывает, что было ДО и что стало ПОСЛЕ
+  // в отметках, уроках (проверка/статус) и ручных баллах. Баллы за отметки не записываются — при отмене
+  // они пересчитываются из отметок сами, поэтому снятая отметка не «вернёт» баллы позже.
+  var MARK_FIELDS = ['attendance', 'homework', 'activity', 'grade', 'uniform'];
+  var LESSON_FIELDS = ['check', 'status'];
+  var JOURNAL_DAYS = 30, JOURNAL_MAX = 150, JOURNAL_MERGE_MIN = 15, JOURNAL_DATA_MAX = 45000;
+  function nv(v) { return v === null || v === undefined || v === '' || v === 0 || v === '0' || v === false ? '' : String(v); }
+  function emptyMark() { return { attendance: '', homework: '', activity: 0, grade: 0, uniform: '' }; }
+  function markEmpty(m) { return MARK_FIELDS.every(function (f) { return nv(m[f]) === ''; }); }
+  function derivedLedger(row) { return /^(mark|streak):/.test(str(row.ref)); }
+  function pick(row, fields) { var o = {}; fields.forEach(function (f) { o[f] = row[f]; }); return o; }
+  function ledgerCopy(row) { return pick(row, SCHEMA.ledger.cols.map(function (c) { return c[0]; })); }
+
+  function Recorder(db) { this.db = db; this.ops = []; this.map = {}; }
+  Recorder.prototype.all = function (t) { return this.db.all(t); };
+  Recorder.prototype.op_ = function (t, id, init) {
+    var key = t + '|' + id;
+    if (!this.map[key]) { this.map[key] = init; this.ops.push(init); }
+    return this.map[key];
+  };
+  Recorder.prototype.insert = function (t, obj) {
+    var row = this.db.insert(t, obj);
+    if (t === 'marks') {
+      var op = this.op_(t, row.id, { t: t, id: row.id, k: pick(row, ['lesson_id', 'student_id', 'date']), b: emptyMark(), a: {} });
+      MARK_FIELDS.forEach(function (f) { op.a[f] = row[f]; });
+    } else if (t === 'ledger' && !derivedLedger(row)) {
+      this.op_(t, row.id, { t: t, id: row.id, b: null, a: ledgerCopy(row) });
+    }
+    return row;
+  };
+  Recorder.prototype.update = function (t, row, patch) {
+    var fields = t === 'marks' ? MARK_FIELDS : t === 'lessons' ? LESSON_FIELDS : [];
+    var changed = fields.filter(function (f) { return f in patch; });
+    if (changed.length) {
+      var op = this.op_(t, row.id, { t: t, id: row.id, b: {}, a: {} });
+      if (t === 'marks' && !op.k) op.k = pick(row, ['lesson_id', 'student_id', 'date']);
+      changed.forEach(function (f) { if (!(f in op.b)) op.b[f] = row[f]; });
+    }
+    var res = this.db.update(t, row, patch);
+    if (changed.length) changed.forEach(function (f) { op.a[f] = row[f]; });
+    return res;
+  };
+  Recorder.prototype.remove = function (t, row) {
+    if (t === 'marks') {
+      var op = this.op_(t, row.id, { t: t, id: row.id, k: pick(row, ['lesson_id', 'student_id', 'date']), b: {}, a: {} });
+      MARK_FIELDS.forEach(function (f) { if (!(f in op.b)) op.b[f] = row[f]; op.a[f] = emptyMark()[f]; });
+    } else if (t === 'ledger' && !derivedLedger(row)) {
+      var key = 'ledger|' + row.id, ex = this.map[key];
+      if (ex && ex.b === null) { this.ops.splice(this.ops.indexOf(ex), 1); delete this.map[key]; } // создали и удалили в одном действии
+      else this.op_(t, row.id, { t: t, id: row.id, b: ledgerCopy(row), a: null });
+    }
+    return this.db.remove(t, row);
+  };
+  // Убрать «пустые» записи (до и после одинаковы).
+  function cleanOps(ops) {
+    return ops.filter(function (op) {
+      if (op.t === 'ledger') return true;
+      return Object.keys(op.a).some(function (f) { return nv(op.a[f]) !== nv(op.b[f]); });
+    });
+  }
+  function opStudents(db, ops) {
+    var ids = {};
+    ops.forEach(function (op) {
+      if (op.t === 'marks') ids[op.k.student_id] = 1;
+      if (op.t === 'ledger') ids[(op.a || op.b).student_id] = 1;
+    });
+    return Object.keys(ids);
+  }
+  // Пересчитать баллы за отметку (или удалить их, если отметки больше нет).
+  function resyncMark(db, ctx, mark, k) {
+    var lesson = byId(db, 'lessons', k.lesson_id) || { date: k.date, start: '', subject: '' };
+    var m = mark || Object.assign({ id: mark ? mark.id : k.id, student_id: k.student_id }, emptyMark());
+    syncMarkPoints(db, ctx, m, lesson);
+    syncStreakBonus(db, ctx, m, lesson);
+  }
+  // dir = 'undo' (вернуть «как было») или 'redo' (снова «как стало»). Возвращает число пропущенных полей:
+  // их меняли позже другим действием, и затирать чужие изменения мы не будем.
+  function applyOps(db, ctx, ops, dir) {
+    var skipped = 0, list = dir === 'undo' ? ops.slice().reverse() : ops;
+    list.forEach(function (op) {
+      var from = dir === 'undo' ? op.a : op.b, to = dir === 'undo' ? op.b : op.a;
+      var cur = byId(db, op.t, op.id);
+      if (op.t === 'ledger') {
+        if (!to) { if (cur) { if (num(cur.amount) === num(from.amount)) db.remove('ledger', cur); else skipped++; } }
+        else if (!cur) db.insert('ledger', to);
+        return;
+      }
+      var patch = {}, n = 0;
+      Object.keys(to).forEach(function (f) {
+        if (nv(from[f]) === nv(to[f])) return; // это поле действие не меняло
+        var now = cur ? cur[f] : '';
+        if (nv(now) === nv(from[f])) { if (nv(now) !== nv(to[f])) { patch[f] = to[f]; n++; } }
+        else if (nv(now) !== nv(to[f])) skipped++;
+      });
+      if (op.t === 'lessons') { if (cur && n) db.update('lessons', cur, patch); return; }
+      // отметки
+      if (!cur) {
+        if (!n) return;
+        cur = db.insert('marks', Object.assign({ id: op.id }, op.k, emptyMark(), patch, { updated_at: ctx.nowStr }));
+      } else if (n) {
+        db.update('marks', cur, Object.assign(patch, { updated_at: ctx.nowStr }));
+      } else return;
+      if (markEmpty(cur)) { db.remove('marks', cur); resyncMark(db, ctx, null, Object.assign({ id: op.id }, op.k)); }
+      else resyncMark(db, ctx, cur, op.k);
+    });
+    return skipped;
+  }
+
+  // Какие действия попадают в журнал и как они называются.
+  var JOURNALED = {
+    't.marks.save': function (db, ctx, p, res) {
+      var l = byId(db, 'lessons', res.lessonId), c = l && byId(db, 'classes', l.class_id);
+      return { ref: 'lesson:' + res.lessonId, merge: true,
+        title: (p.check === 'done' ? 'Проверка ДЗ' : 'Отметки на уроке') + (c ? ' · ' + c.name : '') + (l ? ' · ' + lessonLabel(l) : '') };
+    },
+    't.points': function (db, ctx, p) {
+      var st = byId(db, 'students', p.studentId);
+      return { ref: '', title: (num(p.amount) > 0 ? 'Баллы вручную' : 'Списание вручную') + ' · ' + (st ? st.name : '') };
+    },
+    't.points.delete': function () { return { ref: '', title: 'Удалена запись из истории баллов' }; },
+    't.mass.apply': function (db, ctx, p, res) { return { ref: '', title: 'Массовая отмена · ' + res.title }; }
+  };
+  function pruneJournal(db, ctx) {
+    var limit = addDays(ctx.today, -JOURNAL_DAYS), rows = db.all('journal');
+    rows.filter(function (r) { return str(r.at).slice(0, 10) < limit; }).forEach(function (r) { db.remove('journal', r); });
+    rows = db.all('journal').slice();
+    while (rows.length > JOURNAL_MAX) db.remove('journal', rows.shift());
+  }
+  function writeJournal(db, ctx, action, p, res, rec, bal0) {
+    var ops = cleanOps(rec.ops);
+    if (!ops.length) return;
+    var info = JOURNALED[action](db, ctx, p, res), bal1 = balanceMap(db);
+    var amountOf = function (list) {
+      return opStudents(db, list).reduce(function (s, id) { return s + (bal1[id] || 0) - (bal0[id] || 0); }, 0);
+    };
+    // Отметки на одном уроке в течение 15 минут — одна строка журнала (режим урока сохраняет понемногу).
+    var last = db.all('journal').slice(-1)[0];
+    var minutes = last ? (parseDateTime(ctx.nowStr) - parseDateTime(last.at)) / 60000 : 1e9;
+    if (info.merge && last && last.action === action && last.ref === info.ref && !last.status && str(last.data) && minutes <= JOURNAL_MERGE_MIN) {
+      var old = JSON.parse(last.data), map = {};
+      old.forEach(function (op) { map[op.t + '|' + op.id] = op; });
+      ops.forEach(function (op) {
+        var ex = map[op.t + '|' + op.id];
+        if (!ex) { old.push(op); return; }
+        if (op.t === 'ledger') { ex.a = op.a; return; }
+        Object.keys(op.a).forEach(function (f) { if (!(f in ex.b)) ex.b[f] = op.b[f]; ex.a[f] = op.a[f]; });
+      });
+      old = cleanOps(old);
+      db.update('journal', last, { at: ctx.nowStr, title: p.check === 'done' ? info.title : last.title, students: opStudents(db, old).length,
+        amount: num(last.amount) + amountOf(ops), data: JSON.stringify(old) });
+      return;
+    }
+    var data = JSON.stringify(ops);
+    db.insert('journal', { id: uid('j'), at: ctx.nowStr, action: action, title: str(info.title, 200), ref: info.ref,
+      students: opStudents(db, ops).length, amount: amountOf(ops),
+      status: data.length > JOURNAL_DATA_MAX ? 'big' : '', data: data.length > JOURNAL_DATA_MAX ? '' : data });
+    pruneJournal(db, ctx);
+  }
+  function parseDateTime(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2}))?/.exec(str(s));
+    return m ? new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)).getTime() : 0;
+  }
+
+  // ─── Массовая отмена: что попадёт под фильтр ───
+  var MASS_KINDS = ['attendance', 'homework', 'grade', 'uniform', 'activity', 'manual'];
+  function massSelect(db, ctx, p) {
+    var kinds = (p.kinds || []).filter(function (k) { return MASS_KINDS.indexOf(k) >= 0; });
+    if (!kinds.length) fail('Выберите, что отменить.');
+    var lessonId = str(p.lessonId), from = str(p.from), to = str(p.to);
+    if (!lessonId) {
+      if (!isDate(from) || !isDate(to)) fail('Укажите период: с какой и по какую дату.');
+      if (from > to) { var x = from; from = to; to = x; }
+    }
+    var pool = p.classId ? studentsOfClass(db, p.classId)
+      : db.all('students').filter(function (s) { return s.status !== 'archived'; });
+    var chosen = (p.studentIds || []).map(String);
+    if (chosen.length) pool = pool.filter(function (s) { return chosen.indexOf(String(s.id)) >= 0; });
+    var ids = {};
+    pool.forEach(function (s) { ids[s.id] = s; });
+    var markKinds = kinds.filter(function (k) { return k !== 'manual'; });
+    var marks = !markKinds.length ? [] : db.all('marks').filter(function (m) {
+      if (!ids[m.student_id]) return false;
+      if (lessonId ? !same(m.lesson_id, lessonId) : (m.date < from || m.date > to)) return false;
+      return markKinds.some(function (k) { return nv(m[k]) !== ''; });
+    });
+    var manual = lessonId || kinds.indexOf('manual') < 0 ? [] : db.all('ledger').filter(function (l) {
+      var d = str(l.at).slice(0, 10);
+      return l.type === 'manual' && ids[l.student_id] && d >= from && d <= to;
+    });
+    // Какие баллы исчезнут: начисления за выбранные поля отметок, бонусы серии (если снимаем ДЗ) и ручные баллы.
+    var refs = {};
+    marks.forEach(function (m) {
+      markKinds.forEach(function (k) { refs[k + '|mark:' + m.id] = 1; });
+      if (markKinds.indexOf('homework') >= 0) refs['streak|streak:' + m.id] = 1;
+    });
+    var per = {};
+    var add = function (sid, a) { per[sid] = (per[sid] || 0) + a; };
+    db.all('ledger').forEach(function (l) { if (refs[l.type + '|' + l.ref]) add(l.student_id, -num(l.amount)); });
+    manual.forEach(function (l) { add(l.student_id, -num(l.amount)); });
+    marks.forEach(function (m) { if (!(m.student_id in per)) per[m.student_id] = 0; });
+    var who = Object.keys(per).map(function (sid) { return { id: sid, name: ids[sid] ? ids[sid].name : '—', amount: per[sid] }; });
+    return { kinds: markKinds, marks: marks, manual: manual, lessonId: lessonId,
+      students: sortBy(who, function (x) { return str(x.name).toLowerCase(); }),
+      amount: who.reduce(function (s, x) { return s + x.amount; }, 0) };
   }
 
   // ═════════════════════════ ДЕЙСТВИЯ (API) ═════════════════════════
@@ -726,6 +947,69 @@ var Logic = (function () {
     return { balance: balanceMap(db)[row.student_id] || 0 };
   };
 
+  // ─── Учитель: журнал действий и массовая отмена ───
+  A['t.journal'] = function (db, ctx) {
+    var rows = db.all('journal').slice().reverse().slice(0, 60); // новые строки всегда дописываются в конец
+    return { days: JOURNAL_DAYS, classes: classList(db), items: rows.map(function (r) {
+      return { id: r.id, at: r.at, title: r.title, students: num(r.students), amount: num(r.amount), status: r.status || '',
+        canUndo: !!str(r.data) && r.status !== 'big' };
+    }) };
+  };
+  function journalRow(db, id) {
+    var row = byId(db, 'journal', id);
+    if (!row) fail('Запись журнала не найдена (возможно, ей больше 30 дней). Обновите экран.');
+    if (!str(row.data)) fail('Это действие слишком большое — его нельзя отменить автоматически.');
+    return row;
+  }
+  A['t.journal.undo'] = function (db, ctx, p) {
+    var row = journalRow(db, p.id);
+    if (row.status === 'undone') fail('Уже отменено.');
+    var ops = JSON.parse(row.data), skipped = applyOps(db, ctx, ops, 'undo');
+    db.update('journal', row, { status: 'undone' });
+    refreshBalances(db, opStudents(db, ops));
+    return { skipped: skipped };
+  };
+  A['t.journal.redo'] = function (db, ctx, p) {
+    var row = journalRow(db, p.id);
+    if (row.status !== 'undone') fail('Это действие не было отменено.');
+    var ops = JSON.parse(row.data), skipped = applyOps(db, ctx, ops, 'redo');
+    db.update('journal', row, { status: '' });
+    refreshBalances(db, opStudents(db, ops));
+    return { skipped: skipped };
+  };
+  A['t.mass.preview'] = function (db, ctx, p) {
+    var s = massSelect(db, ctx, p);
+    return { marks: s.marks.length, manual: s.manual.length, amount: s.amount, students: s.students,
+      tooMany: s.marks.length + s.manual.length > MASS_MAX };
+  };
+  var MASS_MAX = 250;
+  A['t.mass.apply'] = function (db, ctx, p) {
+    var s = massSelect(db, ctx, p);
+    if (!s.marks.length && !s.manual.length) fail('Под фильтр ничего не попало.');
+    if (s.marks.length + s.manual.length > MASS_MAX) fail('Слишком много записей за один раз (больше ' + MASS_MAX + '). Выберите период короче или меньше учеников.');
+    var touched = {}, lessons = {};
+    s.marks.forEach(function (m) {
+      var patch = { updated_at: ctx.nowStr }, empty = emptyMark();
+      s.kinds.forEach(function (k) { patch[k] = empty[k]; });
+      db.update('marks', m, patch);
+      var k = { id: m.id, lesson_id: m.lesson_id, student_id: m.student_id, date: m.date };
+      if (markEmpty(m)) { db.remove('marks', m); resyncMark(db, ctx, null, k); } else resyncMark(db, ctx, m, k);
+      touched[m.student_id] = 1;
+      lessons[m.lesson_id] = 1;
+    });
+    // Сняли ДЗ — урок снова «нужно проверить»
+    if (s.kinds.indexOf('homework') >= 0) Object.keys(lessons).forEach(function (id) {
+      var l = byId(db, 'lessons', id);
+      if (l && l.check === 'done') db.update('lessons', l, { check: '' });
+    });
+    s.manual.forEach(function (l) { touched[l.student_id] = 1; db.remove('ledger', l); });
+    refreshBalances(db, Object.keys(touched));
+    var parts = [];
+    if (s.marks.length) parts.push(s.marks.length + ' ' + plural(s.marks.length, ['отметка', 'отметки', 'отметок']));
+    if (s.manual.length) parts.push(s.manual.length + ' ручн. ' + plural(s.manual.length, ['запись', 'записи', 'записей']));
+    return { title: parts.join(', ') + ' · ' + Object.keys(touched).length + ' уч.', students: Object.keys(touched).length };
+  };
+
   // ─── Учитель: расписание ───
   A['t.week'] = function (db, ctx, p) {
     var from = mondayOf(isDate(p.from) ? p.from : ctx.today);
@@ -890,7 +1174,7 @@ var Logic = (function () {
     db.update('classes', cls, {
       top_enabled: !!p.enabled, top_size: size,
       top_mode: ['points', 'rating', 'manual'].indexOf(p.mode) >= 0 ? p.mode : 'points',
-      top_period: p.period === 'all' ? 'all' : 'month', top_manual: manual.join(',')
+      top_period: ['week', 'month', 'all'].indexOf(p.period) >= 0 ? p.period : 'month', top_manual: manual.join(',')
     });
     return { top: computeTop(db, ctx, cls) };
   };
@@ -1421,7 +1705,11 @@ var Logic = (function () {
     if (need === 'parent') {
       ctx.childIds = info.rows.filter(function (r) { return r.role === 'parent'; }).map(function (r) { return String(r.student_id); });
     }
-    return A[action](db, ctx, p);
+    if (!JOURNALED[action]) return A[action](db, ctx, p);
+    var rec = new Recorder(db), bal0 = balanceMap(db);
+    var res = A[action](rec, ctx, p);
+    writeJournal(db, ctx, action, p, res, rec, bal0);
+    return res;
   }
   function isReadOnly(action) { return !!READ_ACTIONS[action]; }
 
