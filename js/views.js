@@ -119,7 +119,8 @@ var Views = (function () {
     var mode = { points: 'по заработанным баллам', rating: 'по успеваемости', manual: 'выбор учителя' }[t.mode] +
       (t.mode !== 'manual' ? ({ week: ' · эта неделя', month: ' · текущий месяц' }[t.period] || ' · за всё время') : '');
     var items = t.items.length ? t.items.map(function (x) {
-      return '<div class="top-item' + (x.me ? ' me' : '') + '"><div class="place p' + x.place + '">' + x.place + '</div>' +
+      var mate = !forTeacher && x.id && !x.me ? ' tap" data-act="mate" data-id="' + esc(x.id) : '';
+      return '<div class="top-item' + (x.me ? ' me' : '') + mate + '"><div class="place p' + x.place + '">' + x.place + '</div>' +
         '<div class="row-main">' + esc(x.name) + (x.me ? ' <span class="pill accent">это вы</span>' : '') +
         (x.pinned && t.mode !== 'manual' ? ' <span class="pill warn">' + icon('star', 12) + ' выбор учителя</span>' : '') + '</div>' +
         (forTeacher && x.value !== null && x.value !== undefined ? '<span class="sub">' + x.value + (t.mode === 'rating' ? ' / 100' : ' б.') + '</span>' : '') + '</div>';

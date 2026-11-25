@@ -19,13 +19,16 @@
         'всего заработано ' + d.earned + '</div>' +
         '<div class="btn-row" style="margin-top:12px"><button class="btn ghost sm" data-act="tab" data-screen="s.rewards">' + icon('gift', 17) + ' Награды</button>' +
         '<button class="btn plain sm" data-act="tab" data-screen="s.history">' + icon('history', 17) + ' История</button></div></div>';
+      html += Game.pupilTop(d.game);
       html += Views.streak(d.streak);
       html += Views.hero(d.upcoming, { screen: 's.lesson', today: d.today });
       if (d.homework) {
         html += '<div class="section-title">' + icon('book', 15) + ' Домашнее задание</div><div class="card"><div class="sub">' + esc(d.homework.subject) + ' · задано ' +
           UI.dayShort(d.homework.date) + '</div><div class="textblock" style="margin-top:4px;font-size:16px">' + esc(d.homework.text) + '</div></div>';
       }
-      if (d.top) html += '<div class="section-title">Лучшие в классе</div>' + Views.top(d.top, false);
+      html += Game.pupilBadges(d.game);
+      if (d.top) html += '<div class="section-title">Лучшие в классе</div>' + Views.top(d.top, false) +
+        (d.game ? '<div class="sub" style="margin:-4px 4px 10px">Нажми на имя — увидишь уровень и значки одноклассника</div>' : '');
       html += '<div class="section-title">Достижения</div>' + Views.badges(d.achievements);
       html += '<div class="section-title">Последние начисления<span class="grow"></span><a data-act="tab" data-screen="s.history">Все</a></div>' +
         '<div class="card flat">' + Views.ledger(d.ledger, 'Баллы появятся после первого урока') + '</div>';

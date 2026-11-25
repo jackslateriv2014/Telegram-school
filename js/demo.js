@@ -184,6 +184,12 @@ var Demo = (function () {
     };
     t('t.requests.decide', { id: req(s2[1], r1, 'Выбрать место в классе на неделю', 25).id, approve: true });
     req(s2[3], r2, 'Задача для разбора на уроке', 15);
+    // Игровая часть: цель класса (начата неделю назад) и пара значков
+    var cls2 = db.all('students').find(function (x) { return x.id === s2[0]; }).class_id;
+    db.insert('goals', { id: U.uid('g'), class_id: cls2, title: 'Поход в кино', target: 400, from: U.addDays(U.fmtDate(now), -7), until: U.addDays(U.fmtDate(now), 21), status: 'active', done_at: '' });
+    t('t.badge.give', { studentIds: [s2[0]], key: 'helper', note: 'помог подготовить опыт' });
+    t('t.badge.give', { studentIds: [s2[0], s2[2]], key: 'answer' });
+    t('t.badge.give', { studentIds: [s2[0]], key: 'late', note: 'два опоздания на этой неделе' });
     db.data.journal = []; // «История изменений» в демо начинается с чистого листа
   }
 

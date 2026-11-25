@@ -363,7 +363,7 @@ var App = (function () {
 
   return {
     start: start, boot: boot, screen: screen, go: go, back: back, showTab: showTab, reload: reload, repaint: repaint,
-    replaceParams: replaceParams, run: run, syncBackButton: syncBackButton, syncChrome: syncChrome, roleSwitcher: roleSwitcher,
+    replaceParams: replaceParams, run: run, syncBackButton: syncBackButton, action: function (name, fn) { Global[name] = fn; }, syncChrome: syncChrome, roleSwitcher: roleSwitcher,
     remember: function (e, data) { remember(cacheKey(e), data); },
     state: state, get current() { return cur; }
   };

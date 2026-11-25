@@ -87,7 +87,9 @@
       if (!d.cls.virtual) html += '<div class="btn-row"><button class="btn ghost" data-act="addStudents">' + icon('plus') + ' Добавить учеников</button>' +
         '<button class="btn plain" data-act="go" data-screen="t.import" data-params="' + esc(JSON.stringify({ kind: 'students', classId: d.cls.id })) + '">' + icon('upload', 18) + ' Из emaktab</button></div>';
       if (d.top) html += '<div class="card flat"><div class="row tap" data-act="go" data-screen="t.top" data-params="' + esc(JSON.stringify({ classId: d.cls.id })) + '">' +
-        icon('trophy') + '<div class="row-main"><div class="row-title">Рейтинг класса</div><div class="row-sub">' + (d.top.enabled ? 'Включён · топ-' + d.top.size : 'Выключен — ученики не видят') + '</div></div><span class="chev">' + icon('chev', 16) + '</span></div></div>';
+        icon('trophy') + '<div class="row-main"><div class="row-title">Рейтинг класса</div><div class="row-sub">' + (d.top.enabled ? 'Включён · топ-' + d.top.size : 'Выключен — ученики не видят') + '</div></div><span class="chev">' + icon('chev', 16) + '</span></div>' +
+        '<div class="row tap" data-act="go" data-screen="t.goal" data-params="' + esc(JSON.stringify({ classId: d.cls.id })) + '">' + icon('users') +
+        '<div class="row-main"><div class="row-title">Цель класса</div><div class="row-sub">Общая копилка баллов на приз</div></div><span class="chev">' + icon('chev', 16) + '</span></div></div>';
       if (!d.cls.virtual) {
         html += '<div class="section-title">Класс</div><div class="card flat">' +
           '<div class="row tap" data-act="schedule">' + icon('calendar') + '<div class="row-main">Расписание класса</div><span class="chev">' + icon('chev', 16) + '</span></div>' +
@@ -227,6 +229,7 @@
         '</div><div class="btn-row" style="margin-bottom:10px"><button class="btn ghost" data-act="invite" data-role="student">Ссылка для ученика</button>' +
         '<button class="btn ghost" data-act="invite" data-role="parent">Ссылка для родителя</button></div>';
 
+      html += Game.teacherSection(d);
       html += '<div class="section-title">Достижения</div>' + Views.badges(d.achievements);
 
       html += '<div class="section-title">Последние уроки</div><div class="card flat">' + (d.marks.length ? d.marks.map(function (m) {
@@ -684,7 +687,8 @@
       S.pending = pending.length;
       var seg = S.rwSeg || (pending.length ? 'requests' : 'shop');
       var html = '<div class="btn-row" style="margin-bottom:12px"><button class="btn ghost sm" data-act="go" data-screen="t.top">' + icon('trophy', 17) + ' Рейтинг</button>' +
-        '<button class="btn ghost sm" data-act="go" data-screen="t.journal">' + icon('undo', 17) + ' История изменений</button></div>' +
+        '<button class="btn ghost sm" data-act="go" data-screen="t.goal">' + icon('users', 17) + ' Цель класса</button>' +
+        '<button class="btn ghost sm" data-act="go" data-screen="t.journal">' + icon('undo', 17) + ' История</button></div>' +
         '<div class="seg"><button data-act="seg" data-seg="requests" class="' + (seg === 'requests' ? 'on' : '') + '">Заявки' + (pending.length ? ' · ' + pending.length : '') + '</button>' +
         '<button data-act="seg" data-seg="shop" class="' + (seg === 'shop' ? 'on' : '') + '">Магазин</button>' +
         '<button data-act="seg" data-seg="rules" class="' + (seg === 'rules' ? 'on' : '') + '">Правила</button></div>';
@@ -780,6 +784,8 @@
             return '<div class="row tap" data-act="go" data-screen="t.import" data-params="' + esc(JSON.stringify({ kind: k[0] })) + '"><div class="row-main"><div class="row-title">' + k[1] +
               '</div><div class="row-sub">' + k[2] + '</div></div><span class="chev">' + icon('chev', 16) + '</span></div>';
           }).join('') + '</div>';
+      html += '<div class="section-title">' + icon('star', 15) + ' Игровой режим</div><div class="card" style="padding:4px 14px">' +
+        tog('game_enabled', 'Уровни, значки и цель класса', 'Ученики видят свой уровень, значки и общую цель; одноклассники — уровень и значки друг друга') + '</div>';
       html += '<div class="section-title">' + icon('eye', 15) + ' Что видят родители</div><div class="card" style="padding:4px 14px">' +
         tog('parent_show_attendance', 'Посещаемость') + tog('parent_show_homework', 'Сдача домашних заданий') +
         tog('parent_show_points', 'Баллы, история и достижения') + tog('parent_show_materials', 'Темы уроков, ДЗ и конспекты') + '</div>' +

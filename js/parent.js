@@ -44,6 +44,7 @@
           ' · задано ' + UI.dayShort(d.homework.date) + '</div><div class="textblock" style="margin-top:4px">' + esc(d.homework.text) + '</div></div>';
       }
       html += '<div class="section-title">Расписание</div>' + Views.hero(d.upcoming, { today: d.today });
+      if (d.points && d.points.game) html += Game.pupilBlocks(d.points.game, { parent: true });
       if (d.points) html += '<div class="section-title">Достижения</div>' + Views.badges(d.points.achievements);
       return html;
     }

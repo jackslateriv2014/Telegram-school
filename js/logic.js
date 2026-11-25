@@ -17,7 +17,7 @@
 var Logic = (function () {
   'use strict';
 
-  var VERSION = '0.4.0';
+  var VERSION = '0.5.0';
 
   // ───────────────────────── Структура листов таблицы ─────────────────────────
   // [ключ в коде, заголовок столбца в таблице, тип]
@@ -70,7 +70,15 @@ var Logic = (function () {
     // Журнал сохранений учителя — для кнопок «Отменить» / «Вернуть». Хранится 30 дней.
     journal: { sheet: 'Журнал действий', cols: [
       ['id', 'ID'], ['at', 'Когда', 'datetime'], ['action', 'Действие'], ['title', 'Что сделано'], ['ref', 'Ссылка'],
-      ['students', 'Учеников', 'num'], ['amount', 'Баллы', 'num'], ['status', 'Статус'], ['data', 'Данные для отмены (не менять)']] }
+      ['students', 'Учеников', 'num'], ['amount', 'Баллы', 'num'], ['status', 'Статус'], ['data', 'Данные для отмены (не менять)']] },
+    // Значки, выданные учителем (хорошие видны одноклассникам, замечания — только ученику и родителю)
+    badges: { sheet: 'Значки', cols: [
+      ['id', 'ID'], ['student_id', 'ID ученика'], ['key', 'Вид'], ['title', 'Название'], ['kind', 'Тип (good/warn)'],
+      ['note', 'Комментарий'], ['at', 'Выдан', 'datetime'], ['until', 'Действует до (для замечаний)', 'date'], ['ref', 'Ссылка']] },
+    // Общая цель класса: все заработанные баллы класса идут в копилку цели
+    goals: { sheet: 'Цели класса', cols: [
+      ['id', 'ID'], ['class_id', 'ID класса'], ['title', 'Приз'], ['target', 'Нужно баллов', 'num'], ['from', 'С даты', 'date'],
+      ['until', 'До даты', 'date'], ['status', 'Статус'], ['done_at', 'Достигнута', 'datetime']] }
   };
 
   // Настройки по умолчанию: [параметр, значение, пояснение для учителя]
@@ -98,7 +106,8 @@ var Logic = (function () {
     ['parent_show_attendance', 'true', 'Родитель видит посещаемость'],
     ['parent_show_homework', 'true', 'Родитель видит сдачу ДЗ'],
     ['parent_show_points', 'true', 'Родитель видит баллы и историю'],
-    ['parent_show_materials', 'true', 'Родитель видит темы и конспекты']
+    ['parent_show_materials', 'true', 'Родитель видит темы и конспекты'],
+    ['game_enabled', 'true', 'Игровой режим для учеников: уровни, значки, цель класса']
   ];
 
   var ATTENDANCE = ['', 'present', 'absent', 'late', 'excused'];
@@ -108,7 +117,7 @@ var Logic = (function () {
   // Действия, которые только читают данные (сервер выполняет их без блокировки — быстрее).
   var READ_ACTIONS = {
     'bootstrap': 1, 't.home': 1, 't.class': 1, 't.student': 1, 't.week': 1, 't.lesson': 1,
-    't.rewards': 1, 't.checks': 1, 't.journal': 1, 't.mass.preview': 1, 's.home': 1, 's.week': 1, 's.lesson': 1, 's.rewards': 1, 's.history': 1, 'p.home': 1
+    't.rewards': 1, 't.checks': 1, 't.journal': 1, 't.mass.preview': 1, 't.goal': 1, 's.classmate': 1, 's.home': 1, 's.week': 1, 's.lesson': 1, 's.rewards': 1, 's.history': 1, 'p.home': 1
   };
 
   // ───────────────────────── Маленькие помощники ─────────────────────────
@@ -391,7 +400,8 @@ var Logic = (function () {
     var res = {};
     studentIds.forEach(function (id) {
       res[id] = { marked: 0, present: 0, late: 0, absent: 0, excused: 0, hwDone: 0, hwPartial: 0, hwNone: 0,
-        activity: 0, hwStreak: 0, hwBest: 0, attStreak: 0, attBest: 0, attendancePct: null, homeworkPct: null };
+        activity: 0, hwStreak: 0, hwBest: 0, attStreak: 0, attBest: 0, attendancePct: null, homeworkPct: null,
+        fives: 0, uniStreak: 0, uniBest: 0 };
     });
     marks.forEach(function (m) {
       var s = res[m.student_id];
@@ -405,6 +415,8 @@ var Logic = (function () {
       else if (m.homework === 'partial') { s.hwPartial++; s.hwStreak = 0; }
       else if (m.homework === 'none') { s.hwNone++; s.hwStreak = 0; }
       s.activity += num(m.activity);
+      if (num(m.grade) === 5) s.fives++;
+      if (m.uniform === 'yes') { s.uniStreak++; s.uniBest = Math.max(s.uniBest, s.uniStreak); } else if (m.uniform === 'no') s.uniStreak = 0;
     });
     Object.keys(res).forEach(function (id) {
       var s = res[id], att = s.present + s.late + s.absent, hw = s.hwDone + s.hwPartial + s.hwNone;
@@ -419,7 +431,9 @@ var Logic = (function () {
     var act = maxActivity > 0 ? s.activity / maxActivity * 100 : 0;
     return Math.round((s.homeworkPct || 0) * 0.5 + (s.attendancePct || 0) * 0.3 + act * 0.2);
   }
-  function achievements(st, earnedTotal) {
+  // extra = { month, prev } — заработано в этом и прошлом месяце (для значка «Рывок»)
+  function achievements(st, earnedTotal, extra) {
+    var rise = extra && extra.prev > 0 && extra.month > extra.prev ? 1 : 0;
     var list = [
       ['first', 'Первый шаг', 'Получить первые баллы', earnedTotal, 1, 'star'],
       ['p50', '50 баллов', 'Заработать 50 баллов', earnedTotal, 50, 'coin'],
@@ -428,11 +442,134 @@ var Logic = (function () {
       ['hw5', 'Серия ×5', '5 домашних заданий подряд', st.hwBest, 5, 'flame'],
       ['hw10', 'Серия ×10', '10 домашних заданий подряд', st.hwBest, 10, 'flame'],
       ['att10', 'Без пропусков', '10 уроков подряд без пропусков', st.attBest, 10, 'calendar'],
-      ['act20', 'Активный', '20 раз отличиться на уроке', st.activity, 20, 'bolt']
+      ['act20', 'Активный', '20 раз отличиться на уроке', st.activity, 20, 'bolt'],
+      ['p500', '500 баллов', 'Заработать 500 баллов', earnedTotal, 500, 'trophy'],
+      ['p1000', '1000 баллов', 'Заработать 1000 баллов', earnedTotal, 1000, 'trophy'],
+      ['hw20', 'Серия ×20', '20 домашних заданий подряд', st.hwBest, 20, 'flame'],
+      ['five1', 'Первая пятёрка', 'Получить оценку «5»', st.fives || 0, 1, 'star'],
+      ['five10', 'Отличник', 'Получить 10 пятёрок', st.fives || 0, 10, 'star'],
+      ['five25', 'Круглый отличник', 'Получить 25 пятёрок', st.fives || 0, 25, 'star'],
+      ['uni10', 'Опрятный', 'Школьная форма 10 проверок подряд', st.uniBest || 0, 10, 'check'],
+      ['rise', 'Рывок', 'Заработать в этом месяце больше, чем в прошлом', rise, 1, 'bolt']
     ];
     return list.map(function (a) {
       return { key: a[0], title: a[1], desc: a[2], value: Math.min(a[3], a[4]), target: a[4], icon: a[5], done: a[3] >= a[4] };
     });
+  }
+
+  // ───────────────────────── Уровни ─────────────────────────
+  // Уровень считается по ВСЕМ заработанным баллам: покупки наград его не уменьшают, поэтому уровень не падает.
+  var LEVELS = [[0, 'Новичок'], [50, 'Ученик'], [150, 'Старатель'], [300, 'Знаток'], [500, 'Мастер'],
+    [800, 'Эксперт'], [1200, 'Чемпион'], [1700, 'Легенда']];
+  function levelOf(earned) {
+    var i = 0;
+    while (i + 1 < LEVELS.length && earned >= LEVELS[i + 1][0]) i++;
+    var cur = LEVELS[i], next = LEVELS[i + 1];
+    return { level: i + 1, name: cur[1], earned: earned, from: cur[0], to: next ? next[0] : null, next: next ? next[1] : null,
+      toNext: next ? next[0] - earned : 0, pct: next ? Math.round((earned - cur[0]) / (next[0] - cur[0]) * 100) : 100 };
+  }
+  function earnedBetween(db, sid, from, to) {
+    var sum = 0;
+    db.all('ledger').forEach(function (l) {
+      var a = num(l.amount), d = str(l.at).slice(0, 10);
+      if (a > 0 && same(l.student_id, sid) && d >= from && (!to || d <= to)) sum += a;
+    });
+    return sum;
+  }
+  function monthExtra(db, sid, today) {
+    var m = today.slice(0, 8) + '01', prev = addDays(m, -1).slice(0, 8) + '01';
+    return { month: earnedBetween(db, sid, m, ''), prev: earnedBetween(db, sid, prev, addDays(m, -1)) };
+  }
+
+  // ───────────────────────── Значки от учителя ─────────────────────────
+  // [название, значок, тип]. good — видят одноклассники; warn — замечание: видят только ученик и родитель,
+  // исчезает само через 7 дней (учитель может снять раньше).
+  var BADGES = {
+    helper: ['Помощник', 'users', 'good'], leader: ['Лидер', 'trophy', 'good'], answer: ['Лучший ответ', 'bolt', 'good'],
+    creative: ['Творец', 'star', 'good'], sport: ['Спортсмен', 'flame', 'good'], team: ['Командный игрок', 'users', 'good'],
+    custom_good: ['Свой значок', 'star', 'good'],
+    late: ['Опоздания', 'clock', 'warn'], nohw: ['Без ДЗ', 'book', 'warn'], behavior: ['Поведение', 'bell', 'warn'],
+    nouniform: ['Без формы', 'x', 'warn'], custom_warn: ['Замечание', 'bell', 'warn']
+  };
+  var WARN_DAYS = 7;
+  function badgeView(b, today) {
+    var c = BADGES[b.key] || BADGES[b.kind === 'warn' ? 'custom_warn' : 'custom_good'];
+    var v = { id: b.id, key: b.key, title: b.title || c[0], icon: c[1], kind: b.kind === 'warn' ? 'warn' : 'good', note: b.note || '', at: b.at };
+    if (v.kind === 'warn') {
+      v.until = b.until;
+      v.active = !b.until || b.until >= today;
+      v.daysLeft = b.until ? Math.max(0, Math.round((parseDate(b.until) - parseDate(today)) / 86400000)) : null;
+    }
+    return v;
+  }
+  // opts.warn — показывать замечания (только сам ученик, родитель, учитель); opts.expired — и истёкшие (учителю)
+  function badgesOf(db, sid, today, opts) {
+    opts = opts || {};
+    return sortBy(db.all('badges').filter(function (b) { return same(b.student_id, sid); }), function (b) { return b.at; }).reverse()
+      .map(function (b) { return badgeView(b, today); })
+      .filter(function (v) { return v.kind === 'good' || (opts.warn && (v.active || opts.expired)); });
+  }
+  function badgeCatalog() {
+    return Object.keys(BADGES).filter(function (k) { return k !== 'team'; }).map(function (k) {
+      return { key: k, title: BADGES[k][0], icon: BADGES[k][1], kind: BADGES[k][2], custom: /^custom_/.test(k) };
+    });
+  }
+
+  // ───────────────────────── Цель класса ─────────────────────────
+  // В копилку идут все заработанные баллы учеников класса с даты начала цели (минусы не вычитаются,
+  // личный баланс не тратится).
+  function goalProgress(db, g) {
+    var ids = {}, per = {}, total = 0;
+    studentsOfClass(db, g.class_id).forEach(function (s) { ids[s.id] = s; });
+    db.all('ledger').forEach(function (l) {
+      var a = num(l.amount), d = str(l.at).slice(0, 10);
+      if (a > 0 && ids[l.student_id] && d >= str(g.from) && (!g.until || d <= g.until)) { per[l.student_id] = (per[l.student_id] || 0) + a; total += a; }
+    });
+    return { total: total, per: per, students: ids };
+  }
+  function goalView(db, ctx, g, opts) {
+    opts = opts || {};
+    var pr = goalProgress(db, g), target = Math.max(1, num(g.target));
+    var v = { id: g.id, class_id: g.class_id, title: g.title, target: target, progress: Math.min(pr.total, target), raw: pr.total,
+      pct: Math.min(100, Math.round(pr.total / target * 100)), from: g.from, until: g.until || '', status: g.status, done_at: g.done_at || '',
+      daysLeft: g.until ? Math.round((parseDate(g.until) - parseDate(ctx.today)) / 86400000) : null };
+    if (opts.sid) v.mine = pr.per[opts.sid] || 0;
+    if (opts.teacher) {
+      v.members = Object.keys(pr.students).map(function (id) { return { id: id, name: pr.students[id].name, amount: pr.per[id] || 0 }; })
+        .sort(function (a, b) { return b.amount - a.amount || (a.name < b.name ? -1 : 1); });
+    }
+    return v;
+  }
+  // Текущая цель класса: активная, или достигнутая за последние 7 дней (чтобы ученики увидели праздник).
+  function currentGoal(db, ctx, classId) {
+    var list = db.all('goals').filter(function (g) { return same(g.class_id, classId); });
+    var act = list.find(function (g) { return g.status === 'active'; });
+    if (act) return act;
+    var recent = sortBy(list.filter(function (g) { return g.status === 'done' && str(g.done_at).slice(0, 10) >= addDays(ctx.today, -7); }),
+      function (g) { return g.done_at; });
+    return recent[recent.length - 1] || null;
+  }
+  // После каждого сохранения учителя: не достигнута ли цель? Если да — значок «Командный игрок» всему классу
+  // и сообщение учителю в Telegram (ctx.notify — сервер отправит его после сохранения).
+  function checkGoals(db, ctx) {
+    db.all('goals').filter(function (g) { return g.status === 'active'; }).forEach(function (g) {
+      var pr = goalProgress(db, g), cls = byId(db, 'classes', g.class_id);
+      if (pr.total >= num(g.target) && num(g.target) > 0) {
+        db.update('goals', g, { status: 'done', done_at: ctx.nowStr });
+        Object.keys(pr.students).forEach(function (sid) {
+          var has = db.all('badges').some(function (b) { return same(b.student_id, sid) && b.ref === 'goal:' + g.id; });
+          if (!has) db.insert('badges', { id: uid('b'), student_id: sid, key: 'team', title: 'Командный игрок', kind: 'good',
+            note: 'Цель класса: ' + g.title, at: ctx.nowStr, until: '', ref: 'goal:' + g.id });
+        });
+        (ctx.notify = ctx.notify || []).push('🎉 ' + (cls ? cls.name : 'Класс') + ' достиг цели «' + g.title + '» — собрано ' + pr.total +
+          ' из ' + num(g.target) + ' баллов. Пора выдать приз!');
+      } else if (g.until && g.until < ctx.today) {
+        db.update('goals', g, { status: 'missed' });
+      }
+    });
+  }
+  function teacherChats(db) {
+    return db.all('users').filter(function (u) { return u.role === 'teacher'; }).map(function (u) { return String(u.tg_id); });
   }
 
   // ───────────────────────── Топ лучших ─────────────────────────
@@ -481,7 +618,7 @@ var Logic = (function () {
   // Ученикам и родителям — только имена и места, без чужих баллов.
   function publicTop(top, myId) {
     return { size: top.size, mode: top.mode, period: top.period, items: top.items.map(function (x) {
-      return { place: x.place, name: x.name, me: same(x.student_id, myId), pinned: top.mode !== 'manual' && x.pinned };
+      return { place: x.place, id: x.student_id, name: x.name, me: same(x.student_id, myId), pinned: top.mode !== 'manual' && x.pinned };
     }) };
   }
 
@@ -897,7 +1034,8 @@ var Logic = (function () {
         note_good: st.note_good, note_weak: st.note_weak, note_repeat: st.note_repeat,
         note_parent: truthy(st.note_parent), note_updated: st.note_updated },
       balance: balanceMap(db)[st.id] || 0, pending: pendingMap(db)[st.id] || 0, earned: earned, stats: stats,
-      achievements: achievements(stats, earned),
+      achievements: achievements(stats, earned, monthExtra(db, st.id, ctx.today)),
+      level: levelOf(earned), badges: badgesOf(db, st.id, ctx.today, { warn: true, expired: true }), catalog: badgeCatalog(),
       ledger: sortBy(db.all('ledger').filter(function (l) { return same(l.student_id, st.id); }), function (l) { return l.at; })
         .reverse().slice(0, 60).map(function (l) { return { id: l.id, at: l.at, amount: num(l.amount), type: l.type, reason: l.reason }; }),
       marks: marks,
@@ -1257,7 +1395,7 @@ var Logic = (function () {
     if (p.bot_username !== undefined) setSetting(db, 'bot_username', str(p.bot_username, 60).replace(/^@/, ''));
     if (p.app_short_name !== undefined) setSetting(db, 'app_short_name', appShortName(str(p.app_short_name, 120)));
     ['parent_show_attendance', 'parent_show_homework', 'parent_show_points', 'parent_show_materials',
-      'check_ask_grade', 'check_ask_uniform', 'remind_enabled'].forEach(function (k) {
+      'check_ask_grade', 'check_ask_uniform', 'remind_enabled', 'game_enabled'].forEach(function (k) {
       if (p[k] !== undefined) setSetting(db, k, p[k] ? 'true' : 'false');
     });
     if (p.check_subjects !== undefined) {
@@ -1563,6 +1701,88 @@ var Logic = (function () {
     return { plan: plan };
   };
 
+  // ─── Учитель: значки ───
+  A['t.badge.give'] = function (db, ctx, p) {
+    var c = BADGES[p.key];
+    if (!c || p.key === 'team') fail('Выберите значок.');
+    var title = /^custom_/.test(p.key) ? str(p.title, 40) : c[0];
+    if (!title) fail('Напишите название значка.');
+    var ids = (p.studentIds || []).map(String).filter(function (id) { return activeStudent(db, id); });
+    if (!ids.length) fail('Выберите ученика.');
+    var days = Math.max(1, Math.min(60, Math.round(num(p.days)) || WARN_DAYS));
+    ids.forEach(function (sid) {
+      db.insert('badges', { id: uid('b'), student_id: sid, key: p.key, title: title, kind: c[2], note: str(p.note, 200),
+        at: ctx.nowStr, until: c[2] === 'warn' ? addDays(ctx.today, days) : '', ref: '' });
+    });
+    return { count: ids.length };
+  };
+  A['t.badge.remove'] = function (db, ctx, p) {
+    var b = byId(db, 'badges', p.id);
+    if (!b) fail('Значок уже снят. Обновите экран.');
+    db.remove('badges', b);
+    return { ok: true };
+  };
+
+  // ─── Учитель: цель класса ───
+  A['t.goal'] = function (db, ctx, p) {
+    var classes = classList(db);
+    var cls = byId(db, 'classes', p.classId) || (classes[0] && byId(db, 'classes', classes[0].id));
+    if (!cls) return { classes: classes, cls: null };
+    var list = sortBy(db.all('goals').filter(function (g) { return same(g.class_id, cls.id); }), function (g) { return g.from + (g.done_at || ''); }).reverse();
+    var act = list.find(function (g) { return g.status === 'active'; });
+    return {
+      classes: classes, cls: { id: cls.id, name: cls.name }, today: ctx.today,
+      goal: act ? goalView(db, ctx, act, { teacher: true }) : null,
+      history: list.filter(function (g) { return g !== act; }).slice(0, 10).map(function (g) { return goalView(db, ctx, g); })
+    };
+  };
+  A['t.goal.save'] = function (db, ctx, p) {
+    var title = str(p.title, 100), target = Math.round(num(p.target)), until = str(p.until);
+    if (!title) fail('Напишите, какой приз получит класс.');
+    if (target < 10 || target > 100000) fail('Сколько баллов нужно собрать: от 10 до 100 000.');
+    if (until && (!isDate(until) || until < ctx.today)) fail('Срок должен быть не раньше сегодняшнего дня.');
+    if (p.id) {
+      var g = byId(db, 'goals', p.id);
+      if (!g || g.status !== 'active') fail('Эту цель уже нельзя изменить.');
+      db.update('goals', g, { title: title, target: target, until: until });
+      return { id: g.id };
+    }
+    var cls = byId(db, 'classes', p.classId);
+    if (!cls) fail('Класс не найден.');
+    if (db.all('goals').some(function (x) { return same(x.class_id, cls.id) && x.status === 'active'; })) {
+      fail('У класса уже есть цель. Закройте её или измените.');
+    }
+    return { id: db.insert('goals', { id: uid('g'), class_id: cls.id, title: title, target: target, from: ctx.today, until: until,
+      status: 'active', done_at: '' }).id };
+  };
+  A['t.goal.close'] = function (db, ctx, p) {
+    var g = byId(db, 'goals', p.id);
+    if (!g || g.status !== 'active') fail('Цель уже закрыта.');
+    db.update('goals', g, { status: 'closed' });
+    return { ok: true };
+  };
+
+  // ─── Игровой профиль ученика (уровень, значки, цель класса) ───
+  function gameOn(ctx) { return truthy(ctx.settings.game_enabled); }
+  function pupilGame(db, ctx, st, earned) {
+    if (!gameOn(ctx)) return null;
+    var g = st.class_id ? currentGoal(db, ctx, st.class_id) : null;
+    return { level: levelOf(earned), badges: badgesOf(db, st.id, ctx.today, { warn: true }),
+      goal: g ? goalView(db, ctx, g, { sid: st.id }) : null };
+  }
+  // Профиль одноклассника: только имя, уровень и хорошие значки (без баллов, оценок и замечаний).
+  A['s.classmate'] = function (db, ctx, p) {
+    var me = activeStudent(db, ctx.studentId), st = activeStudent(db, p.id);
+    if (!st || !same(st.class_id, me.class_id)) fail('Ученик не найден.');
+    if (!gameOn(ctx)) fail('Профили одноклассников выключены.');
+    var stats = statsFor(db, [st.id], '')[st.id], earned = earnedMap(db, '')[st.id] || 0;
+    var auto = achievements(stats, earned, monthExtra(db, st.id, ctx.today)).filter(function (a) { return a.done; })
+      .map(function (a) { return { title: a.title, icon: a.icon, kind: 'good' }; });
+    var lvl = levelOf(earned);
+    return { name: st.name, me: same(st.id, me.id), level: { level: lvl.level, name: lvl.name },
+      badges: badgesOf(db, st.id, ctx.today).map(function (b) { return { title: b.title, icon: b.icon, kind: 'good', note: b.note }; }).concat(auto) };
+  };
+
   // ─── Ученик ───
   function lastHomework(db, classId, today) {
     var withHw = sortBy(db.all('lessons').filter(function (l) {
@@ -1578,7 +1798,8 @@ var Logic = (function () {
       balance: balanceMap(db)[st.id] || 0, pending: pendingMap(db)[st.id] || 0, earned: earned, stats: stats,
       streak: { current: stats.hwStreak, length: r.streakLength, bonus: r.streakBonus,
         toBonus: r.streakLength > 0 ? r.streakLength - (stats.hwStreak % r.streakLength) : 0 },
-      achievements: achievements(stats, earned)
+      achievements: achievements(stats, earned, monthExtra(db, st.id, ctx.today)),
+      game: pupilGame(db, ctx, st, earned)
     };
   }
   function myLedger(db, sid, limit) {
@@ -1674,7 +1895,7 @@ var Logic = (function () {
       child: { id: st.id, name: st.name, class_name: cls ? cls.name : '' },
       stats: { attendancePct: show.attendance ? sum.stats.attendancePct : null, homeworkPct: show.homework ? sum.stats.homeworkPct : null,
         present: sum.stats.present + sum.stats.late, absent: sum.stats.absent, hwDone: sum.stats.hwDone },
-      points: show.points ? { balance: sum.balance, earned: sum.earned, streak: sum.streak, achievements: sum.achievements,
+      points: show.points ? { balance: sum.balance, earned: sum.earned, streak: sum.streak, achievements: sum.achievements, game: sum.game,
         ledger: myLedger(db, st.id, 40) } : null,
       notes: show.notes ? { good: st.note_good, weak: st.note_weak, repeat: st.note_repeat, updated: st.note_updated } : null,
       homework: show.materials && cls ? lastHomework(db, cls.id, ctx.today) : null,
@@ -1705,10 +1926,14 @@ var Logic = (function () {
     if (need === 'parent') {
       ctx.childIds = info.rows.filter(function (r) { return r.role === 'parent'; }).map(function (r) { return String(r.student_id); });
     }
-    if (!JOURNALED[action]) return A[action](db, ctx, p);
-    var rec = new Recorder(db), bal0 = balanceMap(db);
-    var res = A[action](rec, ctx, p);
-    writeJournal(db, ctx, action, p, res, rec, bal0);
+    var res;
+    if (!JOURNALED[action]) res = A[action](db, ctx, p);
+    else {
+      var rec = new Recorder(db), bal0 = balanceMap(db);
+      res = A[action](rec, ctx, p);
+      writeJournal(db, ctx, action, p, res, rec, bal0);
+    }
+    if (need === 'teacher' && !READ_ACTIONS[action]) checkGoals(db, ctx);
     return res;
   }
   function isReadOnly(action) { return !!READ_ACTIONS[action]; }
@@ -1761,7 +1986,7 @@ var Logic = (function () {
 
   return {
     VERSION: VERSION, SCHEMA: SCHEMA, DEFAULT_SETTINGS: DEFAULT_SETTINGS,
-    handle: handle, isReadOnly: isReadOnly, createInvite: createInvite, inviteLink: inviteLink, appShortName: appShortName, reminder: reminder,
+    handle: handle, isReadOnly: isReadOnly, teacherChats: teacherChats, createInvite: createInvite, inviteLink: inviteLink, appShortName: appShortName, reminder: reminder,
     getSettings: getSettings, setSetting: setSetting, MemoryDB: MemoryDB,
     util: { fmtDate: fmtDate, fmtDateTime: fmtDateTime, addDays: addDays, mondayOf: mondayOf, weekday: weekday,
       parseDate: parseDate, uid: uid, truthy: truthy, num: num }
