@@ -176,16 +176,14 @@ var App = (function () {
     var c = cur && Screens[cur.key];
     if (c && c.prefetch && cur.data) list = list.concat(c.prefetch(cur.data) || []);
     var role = state.role;
-    var next = function () {
-      if (state.role !== role) { prefetching = false; return; }
-      var e = list.shift();
-      if (!e) { prefetching = false; return; }
+    // Все сразу: одновременные запросы Api склеивает в один пакет — это быстрее, чем по очереди
+    var jobs = list.map(function (e) {
       var s = Screens[e.key], key = cacheKey(e);
-      if (!s || !s.load || state.fresh[key]) return next();
-      s.load(e.params).then(function (data) { remember(key, data); }, function () { list = []; }).then(next);
-    };
+      if (!s || !s.load || state.fresh[key]) return null;
+      return s.load(e.params).then(function (data) { if (state.role === role) remember(key, data); }, function () {});
+    }).filter(Boolean);
     prefetching = true;
-    next();
+    Promise.all(jobs).then(function () { prefetching = false; });
   }
   function repaint(force) { if (cur && (force || (!state.dirty && !UI.isSheetOpen()))) paint(top(), cur.data); }
   function skeleton() { return '<div class="skel" style="height:34px;width:55%;margin-bottom:16px"></div><div class="skel" style="height:120px"></div><div class="skel"></div><div class="skel"></div>'; }

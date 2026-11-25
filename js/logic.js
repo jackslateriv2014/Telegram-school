@@ -17,7 +17,7 @@
 var Logic = (function () {
   'use strict';
 
-  var VERSION = '0.7.0';
+  var VERSION = '0.8.0';
 
   // ───────────────────────── Структура листов таблицы ─────────────────────────
   // [ключ в коде, заголовок столбца в таблице, тип]
@@ -948,10 +948,14 @@ var Logic = (function () {
   function redeem(db, ctx, code) {
     code = str(code).toLowerCase();
     if (!code) fail('Введите код приглашения.');
-    var inv = db.all('invites').find(function (i) { return str(i.code).toLowerCase() === code && truthy(i.active); });
-    if (!inv) fail('Код не найден или больше не действует. Попросите у учителя новую ссылку.');
-    if (num(inv.uses) >= Math.max(1, num(inv.max_uses))) fail('Этот код уже использован. Попросите у учителя новую ссылку.');
+    var inv = db.all('invites').find(function (i) { return str(i.code).toLowerCase() === code; });
     var tg = String(ctx.user.id), info = rolesOf(db, tg);
+    // Уже подключён по этой ссылке (открыл её ещё раз) — просто входим, даже если ссылка использована
+    if (inv && inv.role !== 'teacher' && info.rows.some(function (r) { return r.role === inv.role && same(r.student_id, inv.student_id); })) {
+      return bootstrap(db, ctx);
+    }
+    if (!inv || !truthy(inv.active)) fail('Код не найден или больше не действует. Попросите у учителя новую ссылку.');
+    if (num(inv.uses) >= Math.max(1, num(inv.max_uses))) fail('Этой ссылкой уже воспользовались. Попросите у учителя новую ссылку.');
     var base = { tg_id: tg, name: userName(ctx.user), username: str(ctx.user.username), created_at: ctx.nowStr };
     if (inv.role === 'teacher') {
       if (info.roles.indexOf('teacher') < 0) {
@@ -1127,8 +1131,11 @@ var Logic = (function () {
     if (p.role !== 'student' && p.role !== 'parent') fail('Неизвестная роль.');
     var st = activeStudent(db, p.studentId);
     if (!st) fail('Ученик не найден.');
-    var inv = createInvite(db, ctx.nowStr, p.role, st.id);
-    return { code: inv.code, link: inviteLink(ctx.settings, inv.code), maxUses: inv.max_uses };
+    var inv = !p.renew && db.all('invites').find(function (i) {
+      return i.role === p.role && same(i.student_id, st.id) && truthy(i.active) && num(i.uses) < Math.max(1, num(i.max_uses));
+    });
+    if (!inv) inv = createInvite(db, ctx.nowStr, p.role, st.id);
+    return { code: inv.code, link: inviteLink(ctx.settings, inv.code), maxUses: num(inv.max_uses), uses: num(inv.uses), renewed: !!p.renew };
   };
   A['t.unlink'] = function (db, ctx, p) {
     var row = db.all('users').find(function (u) { return same(u.tg_id, p.tgId) && same(u.student_id, p.studentId) && u.role === p.role; });

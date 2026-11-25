@@ -283,7 +283,7 @@
       },
       invite: function (el, d) {
         var role = el.dataset.role;
-        Api.call('t.invite', { studentId: d.student.id, role: role }).then(function (r) { showInvite(r, role, d.student.name); })
+        Api.call('t.invite', { studentId: d.student.id, role: role }).then(function (r) { r.studentId = d.student.id; showInvite(r, role, d.student.name); })
           .catch(function (err) { UI.toast(err.message, true); });
       },
       unlink: function (el, d) {
@@ -314,13 +314,22 @@
       (r.link ? '<p class="desc">Отправьте ссылку ' + who + ' (' + esc(name) + '). При открытии в Telegram доступ подключится сам.</p><div class="linkbox">' + esc(r.link) + '</div>'
         : '<p class="desc">Готовая ссылка появится, когда в «Настройках» будут указаны имя бота и короткое имя приложения. Пока передайте код — его вводят на экране входа.</p>') +
       '<div class="codebox">' + esc(r.code) + '</div><p class="sub">' +
-      (role === 'parent' ? 'Ссылкой могут воспользоваться до 3 человек (например, мама и папа). ' : 'Ссылка одноразовая. ') +
-      'Новая ссылка отменяет предыдущую.</p><div class="btn-row" style="margin-top:12px"><button class="btn plain" data-copy>' + icon('copy', 18) + ' Копировать</button>' +
-      (r.link ? '<button class="btn" data-share>' + icon('share', 18) + ' Отправить</button>' : '') + '</div>';
+      'Ссылка работает без срока, пока ею не воспользуются' + (role === 'parent' ? ' (до 3 человек — например, мама и папа' + (r.uses ? '; уже вошли: ' + r.uses : '') + ')' : '') +
+      '. Повторное нажатие покажет эту же ссылку. Если ребёнок уже подключён, он может открывать её сколько угодно.</p>' +
+      '<div class="btn-row" style="margin-top:12px"><button class="btn plain" data-copy>' + icon('copy', 18) + ' Копировать</button>' +
+      (r.link ? '<button class="btn" data-share>' + icon('share', 18) + ' Отправить</button>' : '') + '</div>' +
+      '<div class="btn-row"><button class="btn plain sm" data-renew>' + icon('refresh', 16) + ' Новая ссылка (старая перестанет работать)</button></div>';
     var s = UI.openSheet(html);
     s.el.addEventListener('click', function (e) {
       if (e.target.closest('[data-copy]')) UI.copy(r.link || r.code);
       if (e.target.closest('[data-share]')) UI.shareLink(r.link, 'Ссылка для входа в учебный помощник (' + name + ')');
+      if (e.target.closest('[data-renew]')) {
+        s.close();
+        UI.confirm('Сделать новую ссылку? Старая перестанет работать — если вы её уже отправили, отправьте новую.', 'Новая ссылка').then(function (ok) {
+          if (ok) Api.call('t.invite', { studentId: r.studentId, role: role, renew: true }).then(function (n) { n.studentId = r.studentId; showInvite(n, role, name); UI.toast('Новая ссылка готова'); },
+            function (err) { UI.toast(err.message, true); });
+        });
+      }
     });
   }
 

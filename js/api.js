@@ -17,10 +17,35 @@ var Api = (function () {
     if (!Logic.isReadOnly(action)) { inflight = {}; return send(action, params); }
     var key = action + '|' + JSON.stringify(params || {}), x = inflight[key];
     if (!x || (x.done && Date.now() - x.done > REUSE_MS)) {
-      x = inflight[key] = { p: send(action, params), done: 0 };
+      x = inflight[key] = { p: queued(action, params), done: 0 };
       x.p.then(function () { x.done = Date.now(); }, function () { if (inflight[key] === x) delete inflight[key]; });
     }
     return x.p;
+  }
+
+  // Запросы на чтение, сделанные почти одновременно (например, подгрузка всех вкладок), уходят на сервер
+  // ОДНИМ пакетом: Google тратит около 2 секунд на каждый запрос, а пакет читает таблицу один раз.
+  var queue = [], timer = null;
+  function queued(action, params) {
+    if (mode === 'demo') return send(action, params);
+    return new Promise(function (resolve, reject) {
+      queue.push({ action: action, params: params || {}, resolve: resolve, reject: reject });
+      if (!timer) timer = setTimeout(flushQueue, 12);
+    });
+  }
+  function flushQueue() {
+    var list = queue.splice(0, 12);
+    timer = queue.length ? setTimeout(flushQueue, 0) : null;
+    if (list.length === 1) {
+      var one = list[0];
+      return send(one.action, one.params).then(one.resolve, one.reject);
+    }
+    send('batch', { calls: list.map(function (x) { return { action: x.action, params: x.params }; }) }).then(function (res) {
+      list.forEach(function (x, i) {
+        var r = res && res[i];
+        if (r && r.ok) x.resolve(r.data); else x.reject(new Error((r && r.error) || 'Неизвестная ошибка сервера.'));
+      });
+    }, function (err) { list.forEach(function (x) { x.reject(err); }); });
   }
 
   function send(action, params) {
