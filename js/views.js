@@ -9,6 +9,10 @@ var Views = (function () {
   var ATT = { present: ['✓', 'ok', 'Был'], absent: ['Н', 'bad', 'Не был'], late: ['ОП', 'warn', 'Опоздал'], excused: ['УП', '', 'Уваж. причина'] };
   var HW = { done: ['✓', 'ok', 'ДЗ выполнено'], partial: ['½', 'warn', 'ДЗ частично'], none: ['✗', 'bad', 'ДЗ не выполнено'] };
 
+  function gradePill(g) {
+    g = +g || 0;
+    return g ? '<span class="pill ' + (g >= 4 ? 'ok' : g === 3 ? 'warn' : 'bad') + '">оценка ' + g + '</span>' : '';
+  }
   function attPill(a) { var x = ATT[a]; return x ? '<span class="pill ' + x[1] + '">' + x[2] + '</span>' : ''; }
   function hwPill(h) { var x = HW[h]; return x ? '<span class="pill ' + x[1] + '">' + x[2] + '</span>' : ''; }
 
@@ -44,6 +48,8 @@ var Views = (function () {
     var isNow = s <= now && now < e && l.status !== 'cancelled';
     var end = [];
     if (l.material_url) end.push('<span title="Есть конспект">' + icon('file', 18) + '</span>');
+    if (o.teacher && l.check === 'due') end.push('<span class="pill warn" title="Проверка ДЗ">' + icon('clipboard', 12) + ' ДЗ</span>');
+    if (o.teacher && l.check === 'done') end.push('<span class="pill ok" title="ДЗ проверено">' + icon('clipboard', 12) + ' ✓</span>');
     if (o.teacher && l.marked) end.push('<span class="pill ok">' + icon('check', 12) + ' ' + l.marked + '</span>');
     if (l.status === 'cancelled') end.push('<span class="pill bad">отменён</span>');
     else if (isNow) end.push('<span class="pill accent">идёт</span>');
@@ -74,13 +80,15 @@ var Views = (function () {
     }).join('');
   }
 
-  /** История баллов. */
-  function ledger(items, emptyText) {
+  /** История баллов. canDelete — у каждой записи кнопка удаления (только для учителя). */
+  function ledger(items, emptyText, canDelete) {
     if (!items || !items.length) return '<div class="empty">' + esc(emptyText || 'Пока нет начислений') + '</div>';
     return items.map(function (l) {
       return '<div class="row"><div class="row-main"><div class="row-title wrap">' + esc(l.reason) + '</div><div class="row-sub">' +
         UI.dateTime(l.at) + '</div></div><div class="row-end" style="font-weight:700;font-size:15px;color:' +
-        (l.amount > 0 ? 'var(--ok)' : 'var(--bad)') + '">' + UI.signed(l.amount) + '</div></div>';
+        (l.amount > 0 ? 'var(--ok)' : 'var(--bad)') + '">' + UI.signed(l.amount) + '</div>' +
+        (canDelete && l.id ? '<button class="icon-btn" data-act="delPoint" data-id="' + esc(l.id) + '" aria-label="Удалить запись">' + icon('trash', 17) + '</button>' : '') +
+        '</div>';
     }).join('');
   }
 
@@ -152,6 +160,6 @@ var Views = (function () {
     return h < 5 ? 'Доброй ночи' : h < 12 ? 'Доброе утро' : h < 18 ? 'Добрый день' : 'Добрый вечер';
   }
 
-  return { ATT: ATT, HW: HW, attPill: attPill, hwPill: hwPill, hero: hero, lessonRow: lessonRow, byDays: byDays, ledger: ledger,
+  return { ATT: ATT, HW: HW, attPill: attPill, hwPill: hwPill, gradePill: gradePill, hero: hero, lessonRow: lessonRow, byDays: byDays, ledger: ledger,
     badges: badges, streak: streak, top: top, checklist: checklist, saveChecklist: saveChecklist, material: material, greeting: greeting };
 })();

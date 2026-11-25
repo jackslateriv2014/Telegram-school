@@ -17,7 +17,7 @@
 var Logic = (function () {
   'use strict';
 
-  var VERSION = '0.2.0';
+  var VERSION = '0.3.0';
 
   // ───────────────────────── Структура листов таблицы ─────────────────────────
   // [ключ в коде, заголовок столбца в таблице, тип]
@@ -40,18 +40,20 @@ var Logic = (function () {
       ['note_updated', 'Заметки обновлены', 'datetime'], ['created_at', 'Добавлен', 'datetime']] },
     templates: { sheet: 'Расписание (шаблон)', cols: [
       ['id', 'ID'], ['class_id', 'ID класса'], ['weekday', 'День недели (1=Пн)', 'num'],
-      ['start', 'Начало', 'time'], ['end', 'Конец', 'time'], ['subject', 'Предмет'], ['room', 'Кабинет']] },
+      ['start', 'Начало', 'time'], ['end', 'Конец', 'time'], ['subject', 'Предмет'], ['room', 'Кабинет'],
+      ['check', 'Проверка ДЗ с даты']] },
     lessons: { sheet: 'Уроки', cols: [
       ['id', 'ID'], ['class_id', 'ID класса'], ['template_id', 'ID шаблона'],
       ['orig_date', 'Исходная дата', 'date'], ['date', 'Дата', 'date'],
       ['start', 'Начало', 'time'], ['end', 'Конец', 'time'], ['subject', 'Предмет'],
       ['topic', 'Тема'], ['homework', 'Домашнее задание'], ['notes', 'Заметки учителя'],
       ['checklist', 'Чек-лист подготовки'], ['material_url', 'Конспект (ссылка)'],
-      ['material_name', 'Конспект (название)'], ['status', 'Статус'], ['updated_at', 'Изменён', 'datetime']] },
+      ['material_name', 'Конспект (название)'], ['status', 'Статус'], ['updated_at', 'Изменён', 'datetime'],
+      ['check', 'Проверка ДЗ (yes/no/done)']] },
     marks: { sheet: 'Отметки', cols: [
       ['id', 'ID'], ['lesson_id', 'ID урока'], ['student_id', 'ID ученика'], ['date', 'Дата', 'date'],
       ['attendance', 'Присутствие'], ['homework', 'ДЗ'], ['activity', 'Активность', 'num'],
-      ['updated_at', 'Изменено', 'datetime']] },
+      ['updated_at', 'Изменено', 'datetime'], ['grade', 'Оценка', 'num'], ['uniform', 'Форма']] },
     ledger: { sheet: 'История баллов', cols: [
       ['id', 'ID'], ['student_id', 'ID ученика'], ['at', 'Когда', 'datetime'], ['amount', 'Баллы', 'num'],
       ['type', 'Тип'], ['reason', 'За что'], ['ref', 'Ссылка']] },
@@ -79,6 +81,16 @@ var Logic = (function () {
     ['points_activity', '1', 'Баллы за одно нажатие «+» активности'],
     ['streak_length', '5', 'Сколько ДЗ подряд нужно для бонуса (0 = без бонуса)'],
     ['streak_bonus', '5', 'Размер бонуса за серию'],
+    ['points_grade_5', '3', 'Баллы за оценку «5»'],
+    ['points_grade_4', '2', 'Баллы за оценку «4»'],
+    ['points_grade_3', '1', 'Баллы за оценку «3»'],
+    ['points_grade_2', '0', 'Баллы за оценку «2»'],
+    ['points_uniform', '0', 'Баллы за школьную форму'],
+    ['check_subjects', '', 'Предметы, по которым вы проверяете ДЗ (через запятую; пусто = все)'],
+    ['check_ask_grade', 'true', 'Мастер проверки спрашивает оценку'],
+    ['check_ask_uniform', 'false', 'Мастер проверки спрашивает про школьную форму'],
+    ['remind_enabled', 'true', 'Напоминать о проверке ДЗ в Telegram'],
+    ['remind_hour', '7', 'Во сколько часов присылать напоминание (0–23)'],
     ['parent_show_attendance', 'true', 'Родитель видит посещаемость'],
     ['parent_show_homework', 'true', 'Родитель видит сдачу ДЗ'],
     ['parent_show_points', 'true', 'Родитель видит баллы и историю'],
@@ -87,11 +99,12 @@ var Logic = (function () {
 
   var ATTENDANCE = ['', 'present', 'absent', 'late', 'excused'];
   var HOMEWORK = ['', 'done', 'partial', 'none'];
+  var UNIFORM = ['', 'yes', 'no'];
 
   // Действия, которые только читают данные (сервер выполняет их без блокировки — быстрее).
   var READ_ACTIONS = {
     'bootstrap': 1, 't.home': 1, 't.class': 1, 't.student': 1, 't.week': 1, 't.lesson': 1,
-    't.rewards': 1, 's.home': 1, 's.week': 1, 's.lesson': 1, 's.rewards': 1, 's.history': 1, 'p.home': 1
+    't.rewards': 1, 't.checks': 1, 's.home': 1, 's.week': 1, 's.lesson': 1, 's.rewards': 1, 's.history': 1, 'p.home': 1
   };
 
   // ───────────────────────── Маленькие помощники ─────────────────────────
@@ -146,7 +159,9 @@ var Logic = (function () {
     return {
       attendance: num(s.points_attendance), late: num(s.points_late),
       homework: num(s.points_homework), homeworkPartial: num(s.points_homework_partial),
-      activity: num(s.points_activity), streakLength: num(s.streak_length), streakBonus: num(s.streak_bonus)
+      activity: num(s.points_activity), streakLength: num(s.streak_length), streakBonus: num(s.streak_bonus),
+      grade5: num(s.points_grade_5), grade4: num(s.points_grade_4), grade3: num(s.points_grade_3), grade2: num(s.points_grade_2),
+      uniform: num(s.points_uniform)
     };
   }
 
@@ -176,8 +191,13 @@ var Logic = (function () {
     };
     return db.insert('invites', inv);
   }
+  // Короткое имя приложения: из «t.me/bot/app» или «https://t.me/bot/app?x» берём только «app»
+  function appShortName(v) {
+    var parts = str(v).replace(/^https?:\/\//i, '').split(/[?#]/)[0].split('/').filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : '';
+  }
   function inviteLink(settings, code) {
-    var bot = str(settings.bot_username).replace(/^@/, ''), app = str(settings.app_short_name);
+    var bot = str(settings.bot_username).replace(/^@/, ''), app = appShortName(settings.app_short_name);
     if (!bot || !app) return '';
     return 'https://t.me/' + bot + '/' + app + '?startapp=' + code;
   }
@@ -250,7 +270,7 @@ var Logic = (function () {
     return {
       id: virtualId(t.id, date), virtual: true, class_id: t.class_id, template_id: t.id, orig_date: date,
       date: date, start: t.start, end: t.end, subject: t.subject, room: t.room || '', topic: '', homework: '',
-      notes: '', checklist: '', material_url: '', material_name: '', status: 'planned'
+      notes: '', checklist: '', material_url: '', material_name: '', status: 'planned', check_flag: ''
     };
   }
   function lessonView(l) {
@@ -258,10 +278,11 @@ var Logic = (function () {
       id: l.id, virtual: false, class_id: l.class_id, template_id: l.template_id || '', orig_date: l.orig_date || '',
       date: l.date, start: l.start, end: l.end, subject: l.subject, topic: l.topic || '', homework: l.homework || '',
       notes: l.notes || '', checklist: l.checklist || '', material_url: l.material_url || '',
-      material_name: l.material_name || '', status: l.status || 'planned'
+      material_name: l.material_name || '', status: l.status || 'planned', check_flag: l.check || ''
     };
   }
-  function forPupil(v) { var c = {}; Object.keys(v).forEach(function (k) { if (k !== 'notes') c[k] = v[k]; }); return c; }
+  var TEACHER_ONLY = { notes: 1, check_flag: 1, check: 1 };
+  function forPupil(v) { var c = {}; Object.keys(v).forEach(function (k) { if (!TEACHER_ONLY[k]) c[k] = v[k]; }); return c; }
 
   // Уроки за период [from, from+days): шаблон недели + изменённые/разовые уроки из листа «Уроки».
   function lessonsInRange(db, from, days, classIds) {
@@ -318,6 +339,36 @@ var Logic = (function () {
     db.all('marks').forEach(function (x) { if (x.attendance) m[x.lesson_id] = (m[x.lesson_id] || 0) + 1; });
     return m;
   }
+
+  // ───────────────────────── Проверка ДЗ ─────────────────────────
+  // Предметы учителя (из настроек). Пустой список = проверяются все предметы.
+  function checkSubjects(settings) {
+    return str(settings.check_subjects).split(',').map(function (x) { return str(x); }).filter(Boolean);
+  }
+  function subjectChecked(settings, subject) {
+    var list = checkSubjects(settings), n = normText(subject);
+    return !list.length || list.some(function (x) { return normText(x) === n; });
+  }
+  /**
+   * Помечает уроки полем check:
+   *   'due' — надо проверить ДЗ, 'done' — проверено, 'off' — проверка отменена, '' — проверки нет.
+   * Проверка бывает, если: урок вручную помечен «проверить» ИЛИ (предмет учителя И в шаблоне недели отмечен день проверки).
+   */
+  function decorateChecks(db, settings, lessons) {
+    var tpl = {};
+    // в шаблоне хранится дата, с которой включена проверка: более ранние уроки не считаются «непроверенными»
+    db.all('templates').forEach(function (t) { var v = str(t.check); if (v && !/^(false|0|нет)$/i.test(v)) tpl[t.id] = isDate(v) ? v : '0000'; });
+    lessons.forEach(function (l) {
+      var f = l.check_flag || '';
+      var planned = f === 'yes' || f === 'done' || f === 'no' ||
+        (!!l.template_id && !!tpl[l.template_id] && l.date >= tpl[l.template_id] && subjectChecked(settings, l.subject));
+      if (!planned || l.status === 'cancelled') l.check = '';
+      else l.check = f === 'done' ? 'done' : f === 'no' ? 'off' : 'due';
+    });
+    return lessons;
+  }
+  function sameSubjectStrict(a, b) { return normText(a) === normText(b); }
+  function slotOn(t) { var v = str(t.check); return !!v && !/^(false|0|нет)$/i.test(v); }
 
   // ───────────────────────── Статистика, серии, достижения ─────────────────────────
   // Возвращает для каждого ученика: посещаемость %, ДЗ %, активность, текущие и лучшие серии.
@@ -421,7 +472,8 @@ var Logic = (function () {
   }
 
   // ───────────────────────── Начисление баллов за отметки ─────────────────────────
-  var REASONS = { attendance: 'Присутствие', homework: 'Домашнее задание', activity: 'Активность на уроке' };
+  var REASONS = { attendance: 'Присутствие', homework: 'Домашнее задание', activity: 'Активность на уроке',
+    grade: 'Оценка', uniform: 'Школьная форма' };
   function lessonLabel(lesson) {
     var d = parseDate(lesson.date);
     return lesson.subject + ', ' + d.getDate() + '.' + pad(d.getMonth() + 1);
@@ -432,10 +484,13 @@ var Logic = (function () {
     var desired = {
       attendance: mark.attendance === 'present' ? r.attendance : mark.attendance === 'late' ? r.late : 0,
       homework: mark.homework === 'done' ? r.homework : mark.homework === 'partial' ? r.homeworkPartial : 0,
-      activity: num(mark.activity) * r.activity
+      activity: num(mark.activity) * r.activity,
+      grade: num(r['grade' + num(mark.grade)]),
+      uniform: mark.uniform === 'yes' ? r.uniform : 0
     };
     Object.keys(desired).forEach(function (type) {
       var reason = REASONS[type] + (type === 'activity' && num(mark.activity) > 1 ? ' ×' + num(mark.activity) : '') +
+        (type === 'grade' ? ' «' + num(mark.grade) + '»' : '') +
         (type === 'homework' && mark.homework === 'partial' ? ' (частично)' : '') + ' · ' + lessonLabel(lesson);
       upsertLedger(db, mark.student_id, type, 'mark:' + mark.id, desired[type], reason, at);
     });
@@ -502,11 +557,14 @@ var Logic = (function () {
   // ─── Учитель: главная ───
   A['t.home'] = function (db, ctx) {
     var counts = markCounts(db);
-    var upcoming = lessonsInRange(db, ctx.today, 7, null).map(function (l) {
+    var upcoming = decorateChecks(db, ctx.settings, lessonsInRange(db, ctx.today, 7, null)).map(function (l) {
       l.marked = counts[l.id] || 0; return l;
     });
+    // Проверки ДЗ: сегодня и пропущенные за последнюю неделю
+    var checks = decorateChecks(db, ctx.settings, lessonsInRange(db, addDays(ctx.today, -7), 8, null))
+      .filter(function (l) { return l.check === 'due'; });
     return {
-      today: ctx.today, settings: ctx.settings, classes: classList(db), upcoming: upcoming,
+      today: ctx.today, settings: ctx.settings, classes: classList(db), upcoming: upcoming, checks: checks,
       pending: db.all('requests').filter(function (r) { return r.status === 'pending'; }).length,
       unassigned: studentsOfClass(db, '').length
     };
@@ -611,7 +669,7 @@ var Logic = (function () {
       .reverse().slice(0, 15).map(function (m) {
         var l = lessons[m.lesson_id] || {};
         return { date: m.date, subject: l.subject || '', topic: l.topic || '', attendance: m.attendance,
-          homework: m.homework, activity: num(m.activity) };
+          homework: m.homework, activity: num(m.activity), grade: num(m.grade), uniform: m.uniform || '' };
       });
     return {
       student: { id: st.id, name: st.name, class_id: st.class_id, class_name: cls ? cls.name : 'Без класса',
@@ -620,7 +678,7 @@ var Logic = (function () {
       balance: balanceMap(db)[st.id] || 0, pending: pendingMap(db)[st.id] || 0, earned: earned, stats: stats,
       achievements: achievements(stats, earned),
       ledger: sortBy(db.all('ledger').filter(function (l) { return same(l.student_id, st.id); }), function (l) { return l.at; })
-        .reverse().slice(0, 60).map(function (l) { return { at: l.at, amount: num(l.amount), type: l.type, reason: l.reason }; }),
+        .reverse().slice(0, 60).map(function (l) { return { id: l.id, at: l.at, amount: num(l.amount), type: l.type, reason: l.reason }; }),
       marks: marks,
       accounts: db.all('users').filter(function (u) { return same(u.student_id, st.id); }).map(function (u) {
         return { tg_id: String(u.tg_id), role: u.role, name: u.name, username: u.username };
@@ -659,6 +717,15 @@ var Logic = (function () {
     return { balance: balanceMap(db)[st.id] || 0 };
   };
 
+  // Удалить запись из истории баллов (например, после эксперимента). Баланс пересчитывается сам.
+  A['t.points.delete'] = function (db, ctx, p) {
+    var row = byId(db, 'ledger', p.id);
+    if (!row) fail('Запись уже удалена. Обновите экран.');
+    db.remove('ledger', row);
+    refreshBalances(db, [row.student_id]);
+    return { balance: balanceMap(db)[row.student_id] || 0 };
+  };
+
   // ─── Учитель: расписание ───
   A['t.week'] = function (db, ctx, p) {
     var from = mondayOf(isDate(p.from) ? p.from : ctx.today);
@@ -666,12 +733,12 @@ var Logic = (function () {
     var counts = markCounts(db);
     return {
       from: from, today: ctx.today, classId: p.classId || '',
-      lessons: lessonsInRange(db, from, 7, classIds).map(function (l) { l.marked = counts[l.id] || 0; return l; }),
+      lessons: decorateChecks(db, ctx.settings, lessonsInRange(db, from, 7, classIds)).map(function (l) { l.marked = counts[l.id] || 0; return l; }),
       templates: sortBy(db.all('templates').filter(function (t) { return !classIds || same(t.class_id, p.classId); }),
         function (t) { return num(t.weekday) + ' ' + t.start; }).map(function (t) {
         var c = byId(db, 'classes', t.class_id);
         return { id: t.id, class_id: t.class_id, class_name: c ? c.name : '?', weekday: num(t.weekday),
-          start: t.start, end: t.end, subject: t.subject, room: t.room };
+          start: t.start, end: t.end, subject: t.subject, room: t.room, check: slotOn(t) };
       }),
       classes: classList(db)
     };
@@ -706,14 +773,23 @@ var Logic = (function () {
     var r = resolveLesson(db, p.id), v = r.view;
     var cls = byId(db, 'classes', v.class_id);
     v.class_name = cls ? cls.name : '';
+    decorateChecks(db, ctx.settings, [v]);
     var marks = r.row ? marksOfLesson(db, r.row.id) : {};
     var bal = balanceMap(db);
+    // ДЗ, которое проверяется на этом уроке, — задано на предыдущем уроке того же предмета в этом классе
+    var prev = sortBy(db.all('lessons').filter(function (l) {
+      return same(l.class_id, v.class_id) && sameSubjectStrict(l.subject, v.subject) && str(l.homework) && l.status !== 'cancelled' &&
+        (l.date < v.date || (l.date === v.date && l.start < v.start));
+    }), function (l) { return l.date + ' ' + l.start; }).pop();
     return {
       lesson: v, today: ctx.today, rules: rulesOf(ctx.settings),
+      prevHomework: prev ? { date: prev.date, text: prev.homework } : null,
+      ask: { grade: truthy(ctx.settings.check_ask_grade), uniform: truthy(ctx.settings.check_ask_uniform) },
       students: studentsOfClass(db, v.class_id).map(function (s) {
         var m = marks[s.id] || {};
         return { id: s.id, name: s.name, balance: bal[s.id] || 0,
-          mark: { attendance: m.attendance || '', homework: m.homework || '', activity: num(m.activity) } };
+          mark: { attendance: m.attendance || '', homework: m.homework || '', activity: num(m.activity),
+            grade: num(m.grade), uniform: m.uniform || '', saved: !!marks[s.id] } };
       })
     };
   };
@@ -777,13 +853,16 @@ var Logic = (function () {
   A['t.marks.save'] = function (db, ctx, p) {
     var row = materialize(db, ctx, p.lessonId);
     var existing = marksOfLesson(db, row.id), touched = [];
+    // Меняются только присланные поля: мастер проверки не трогает активность, режим урока — оценки.
     (p.marks || []).forEach(function (m) {
       var st = activeStudent(db, m.studentId);
       if (!st) return;
-      var att = ATTENDANCE.indexOf(m.attendance) >= 0 ? m.attendance : '';
-      var hw = HOMEWORK.indexOf(m.homework) >= 0 ? m.homework : '';
-      var act = Math.max(0, Math.min(99, Math.round(num(m.activity))));
-      var patch = { attendance: att, homework: hw, activity: act, date: row.date, updated_at: ctx.nowStr };
+      var patch = { date: row.date, updated_at: ctx.nowStr };
+      if (m.attendance !== undefined) patch.attendance = ATTENDANCE.indexOf(m.attendance) >= 0 ? m.attendance : '';
+      if (m.homework !== undefined) patch.homework = HOMEWORK.indexOf(m.homework) >= 0 ? m.homework : '';
+      if (m.activity !== undefined) patch.activity = Math.max(0, Math.min(99, Math.round(num(m.activity))));
+      if (m.grade !== undefined) { var g = Math.round(num(m.grade)); patch.grade = g >= 1 && g <= 5 ? g : 0; }
+      if (m.uniform !== undefined) patch.uniform = UNIFORM.indexOf(m.uniform) >= 0 ? m.uniform : '';
       var mk = existing[st.id];
       if (mk) db.update('marks', mk, patch);
       else mk = existing[st.id] = db.insert('marks', Object.assign({ id: uid('m'), lesson_id: row.id, student_id: st.id }, patch));
@@ -793,6 +872,7 @@ var Logic = (function () {
     });
     var patch = { updated_at: ctx.nowStr };
     if (p.finish) patch.status = 'done';
+    if (p.check === 'done') patch.check = 'done';
     db.update('lessons', row, patch);
     refreshBalances(db, touched);
     var bal = balanceMap(db), balances = {};
@@ -878,7 +958,8 @@ var Logic = (function () {
   };
   A['t.rules.save'] = function (db, ctx, p) {
     var map = { attendance: 'points_attendance', late: 'points_late', homework: 'points_homework',
-      homeworkPartial: 'points_homework_partial', activity: 'points_activity', streakLength: 'streak_length', streakBonus: 'streak_bonus' };
+      homeworkPartial: 'points_homework_partial', activity: 'points_activity', streakLength: 'streak_length', streakBonus: 'streak_bonus',
+      grade5: 'points_grade_5', grade4: 'points_grade_4', grade3: 'points_grade_3', grade2: 'points_grade_2', uniform: 'points_uniform' };
     Object.keys(map).forEach(function (k) {
       if (p[k] === undefined) return;
       var v = Math.round(num(p[k]));
@@ -890,11 +971,58 @@ var Logic = (function () {
   A['t.settings.save'] = function (db, ctx, p) {
     if (p.teacher_name !== undefined) setSetting(db, 'teacher_name', str(p.teacher_name, 60) || 'Учитель');
     if (p.bot_username !== undefined) setSetting(db, 'bot_username', str(p.bot_username, 60).replace(/^@/, ''));
-    if (p.app_short_name !== undefined) setSetting(db, 'app_short_name', str(p.app_short_name, 60));
-    ['parent_show_attendance', 'parent_show_homework', 'parent_show_points', 'parent_show_materials'].forEach(function (k) {
+    if (p.app_short_name !== undefined) setSetting(db, 'app_short_name', appShortName(str(p.app_short_name, 120)));
+    ['parent_show_attendance', 'parent_show_homework', 'parent_show_points', 'parent_show_materials',
+      'check_ask_grade', 'check_ask_uniform', 'remind_enabled'].forEach(function (k) {
       if (p[k] !== undefined) setSetting(db, k, p[k] ? 'true' : 'false');
     });
+    if (p.check_subjects !== undefined) {
+      var subj = (Array.isArray(p.check_subjects) ? p.check_subjects : String(p.check_subjects).split(','))
+        .map(function (x) { return str(x, 60).replace(/,/g, ' '); }).filter(Boolean);
+      setSetting(db, 'check_subjects', subj.join(', '));
+    }
+    if (p.remind_hour !== undefined) {
+      var h = Math.round(num(p.remind_hour));
+      if (h < 0 || h > 23) fail('Час напоминания — от 0 до 23.');
+      setSetting(db, 'remind_hour', h);
+    }
     return { ok: true };
+  };
+
+  // ─── Учитель: проверка ДЗ ───
+  // Календарь проверок: пропущенные (неделя назад), сегодня и на две недели вперёд + настройка «дней проверки».
+  A['t.checks'] = function (db, ctx) {
+    var from = addDays(ctx.today, -7);
+    var list = decorateChecks(db, ctx.settings, lessonsInRange(db, from, 22, null)).filter(function (l) { return l.check; });
+    var classes = classMap(db), subjects = {};
+    db.all('templates').forEach(function (t) { if (classes[t.class_id] && str(t.subject)) subjects[normText(t.subject)] = str(t.subject); });
+    var mine = checkSubjects(ctx.settings);
+    var slots = sortBy(db.all('templates').filter(function (t) { return classes[t.class_id] && mine.length && subjectChecked(ctx.settings, t.subject); }),
+      function (t) { return str(classes[t.class_id].name) + ' ' + num(t.weekday) + ' ' + t.start; }).map(function (t) {
+      return { id: t.id, class_name: classes[t.class_id].name, weekday: num(t.weekday), start: t.start, subject: t.subject, check: slotOn(t) };
+    });
+    return {
+      today: ctx.today, items: list, slots: slots, mine: mine,
+      subjects: sortBy(Object.keys(subjects).map(function (k) { return subjects[k]; }), function (x) { return x.toLowerCase(); }),
+      ask: { grade: truthy(ctx.settings.check_ask_grade), uniform: truthy(ctx.settings.check_ask_uniform) },
+      remind: { enabled: truthy(ctx.settings.remind_enabled), hour: num(ctx.settings.remind_hour) }
+    };
+  };
+  // Отметить в шаблоне недели, что на этом уроке проверяется ДЗ (каждую неделю).
+  A['t.check.slot'] = function (db, ctx, p) {
+    var t = byId(db, 'templates', p.id);
+    if (!t) fail('Урок в расписании не найден. Обновите экран.');
+    var from = isDate(p.from) ? p.from : ctx.today;
+    if (!p.on) db.update('templates', t, { check: '' });
+    else if (!slotOn(t)) db.update('templates', t, { check: from });
+    return { ok: true };
+  };
+  // Для одного урока: 'yes' — проверить, 'no' — отменить проверку, '' — как в шаблоне.
+  A['t.check.set'] = function (db, ctx, p) {
+    if (['yes', 'no', ''].indexOf(p.value) < 0) fail('Неизвестное значение.');
+    var row = materialize(db, ctx, p.id);
+    db.update('lessons', row, { check: p.value, updated_at: ctx.nowStr });
+    return { id: row.id };
   };
 
   // ─── Учитель: импорт из вставленной таблицы (emaktab, Excel) ───
@@ -1198,7 +1326,7 @@ var Logic = (function () {
     var v = forPupil(r.view);
     v.class_name = cls ? cls.name : '';
     return { lesson: v, today: ctx.today,
-      mark: m ? { attendance: m.attendance, homework: m.homework, activity: num(m.activity) } : null };
+      mark: m ? { attendance: m.attendance, homework: m.homework, activity: num(m.activity), grade: num(m.grade) } : null };
   };
   A['s.history'] = function (db, ctx) {
     return { ledger: myLedger(db, ctx.studentId, 500), balance: balanceMap(db)[ctx.studentId] || 0 };
@@ -1252,7 +1380,7 @@ var Logic = (function () {
       var m = marks[l.id], v = { id: l.id, date: l.date, start: l.start, end: l.end, subject: l.subject, status: l.status };
       if (show.materials) { v.topic = l.topic; v.homework = l.homework; v.material_url = l.material_url; v.material_name = l.material_name; }
       if (m && show.attendance) v.attendance = m.attendance;
-      if (m && show.homework) v.hw = m.homework;
+      if (m && show.homework) { v.hw = m.homework; v.grade = num(m.grade); }
       if (m && show.points) v.activity = num(m.activity);
       return v;
     });
@@ -1297,6 +1425,30 @@ var Logic = (function () {
   }
   function isReadOnly(action) { return !!READ_ACTIONS[action]; }
 
+  /**
+   * Текст утреннего напоминания учителю: какие ДЗ проверить сегодня, какие проверки отменены,
+   * что осталось непроверенным с прошлых дней. Возвращает null, если писать не о чем.
+   */
+  function reminder(db, now) {
+    var settings = getSettings(db), today = fmtDate(now || new Date());
+    if (!truthy(settings.remind_enabled)) return null;
+    var list = decorateChecks(db, settings, lessonsInRange(db, addDays(today, -7), 8, null));
+    var line = function (l) { return '• ' + l.start + ' ' + l.class_name + ', ' + l.subject; };
+    var todayDue = list.filter(function (l) { return l.date === today && l.check === 'due'; });
+    var todayOff = list.filter(function (l) { return l.date === today && l.check === 'off'; });
+    var missed = list.filter(function (l) { return l.date < today && l.check === 'due'; });
+    if (!todayDue.length && !todayOff.length && !missed.length) return null;
+    var parts = [];
+    if (todayDue.length) parts.push('Сегодня проверить ДЗ:\n' + todayDue.map(line).join('\n'));
+    if (todayOff.length) parts.push('Проверка отменена:\n' + todayOff.map(line).join('\n'));
+    if (missed.length) parts.push('Не проверено с прошлых дней: ' + missed.length);
+    return {
+      chats: db.all('users').filter(function (u) { return u.role === 'teacher'; }).map(function (u) { return String(u.tg_id); }),
+      text: parts.join('\n\n'),
+      link: inviteLink(settings, 'check').replace('?startapp=check', '')
+    };
+  }
+
   // ─── Хранилище в памяти (для демо-режима и тестов) ───
   function MemoryDB(data) {
     var self = this;
@@ -1321,7 +1473,7 @@ var Logic = (function () {
 
   return {
     VERSION: VERSION, SCHEMA: SCHEMA, DEFAULT_SETTINGS: DEFAULT_SETTINGS,
-    handle: handle, isReadOnly: isReadOnly, createInvite: createInvite, inviteLink: inviteLink,
+    handle: handle, isReadOnly: isReadOnly, createInvite: createInvite, inviteLink: inviteLink, appShortName: appShortName, reminder: reminder,
     getSettings: getSettings, setSetting: setSetting, MemoryDB: MemoryDB,
     util: { fmtDate: fmtDate, fmtDateTime: fmtDateTime, addDays: addDays, mondayOf: mondayOf, weekday: weekday,
       parseDate: parseDate, uid: uid, truthy: truthy, num: num }

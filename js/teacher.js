@@ -20,6 +20,7 @@
   App.screen('t.today', {
     title: null, live: true,
     load: function () { return Api.call('t.home').then(function (d) { S.pending = d.pending; return d; }); },
+    prefetch: function (d) { return Check.prefetchList(d); },
     render: function (d) {
       var todays = d.upcoming.filter(function (l) { return l.date === d.today; });
       var html = '<div class="kicker">' + UI.dayLong(d.today) + '</div>' +
@@ -37,6 +38,7 @@
         '<div class="row-main"><div class="row-title">Начните с создания класса</div><div class="row-sub">Затем добавьте учеников и расписание</div></div>' +
         '<span class="chev">' + icon('chev', 16) + '</span></div>');
       if (alerts.length) html += '<div class="card flat">' + alerts.join('') + '</div>';
+      html += Check.homeCard(d);
       html += '<div class="section-title">Уроки сегодня<span class="grow"></span><a data-act="tab" data-screen="t.week">Вся неделя</a></div>';
       html += todays.length
         ? '<div class="card flat">' + todays.map(function (l) { return Views.lessonRow(l, { screen: 't.lesson', showClass: true, teacher: true }); }).join('') + '</div>'
@@ -198,11 +200,11 @@
 
       html += '<div class="section-title">Последние уроки</div><div class="card flat">' + (d.marks.length ? d.marks.map(function (m) {
         return '<div class="row"><div class="row-main"><div class="row-title">' + esc(m.subject) + ' · ' + UI.dayShort(m.date) + '</div>' +
-          '<div class="row-sub">' + esc(m.topic || '') + '</div></div><div class="row-end">' + Views.attPill(m.attendance) + ' ' + Views.hwPill(m.homework) +
+          '<div class="row-sub">' + esc(m.topic || '') + '</div></div><div class="row-end">' + Views.attPill(m.attendance) + ' ' + Views.hwPill(m.homework) + ' ' + Views.gradePill(m.grade) +
           (m.activity ? ' <span class="pill accent">+' + m.activity + '</span>' : '') + '</div></div>';
       }).join('') : '<div class="empty">Отметок пока нет</div>') + '</div>';
 
-      html += '<div class="section-title">История баллов</div><div class="card flat">' + Views.ledger(d.ledger.slice(0, 25)) + '</div>';
+      html += '<div class="section-title">История баллов</div><div class="card flat">' + Views.ledger(d.ledger.slice(0, 25), '', true) + '</div>';
 
       html += '<div class="section-title">Управление</div><div class="card flat">' +
         '<div class="row tap" data-act="rename">' + icon('edit') + '<div class="row-main">Изменить имя</div></div>' +
@@ -211,6 +213,12 @@
       return html;
     },
     actions: {
+      delPoint: function (el, d) {
+        var l = d.ledger.find(function (x) { return x.id === el.dataset.id; });
+        if (!l) return;
+        UI.confirm('Удалить запись «' + l.reason + '» (' + UI.signed(l.amount) + ')? Баланс пересчитается. Отменить удаление нельзя.', 'Удалить', true)
+          .then(function (ok) { if (ok) App.run('t.points.delete', { id: l.id }, { ok: 'Запись удалена' }); });
+      },
       saveNotes: function (el, d) {
         var v = function (n) { return document.querySelector('[name=' + n + ']'); };
         App.run('t.notes.save', { id: d.student.id, good: v('good').value, weak: v('weak').value, repeat: v('repeat').value, parent: v('parent').checked },
@@ -484,6 +492,8 @@
     }
     var r = d.rules;
     return (d.lesson.status === 'cancelled' ? '<div class="card" style="color:var(--bad)">Урок отменён. Отметки можно ставить, но ученики видят его как отменённый.</div>' : '') +
+      '<button class="btn block' + (d.lesson.check === 'due' ? '' : ' ghost') + '" data-act="go" data-screen="t.check" data-id="' + esc(d.lesson.id) + '" style="margin-bottom:10px">' +
+      icon('clipboard', 18) + (d.lesson.check === 'done' ? ' ДЗ проверено · открыть' : ' Проверить ДЗ по шагам') + '</button>' +
       '<div class="btn-row" style="margin-bottom:12px"><button class="btn ghost sm" data-act="allPresent">' + icon('check', 17) + ' Все присутствуют</button>' +
       '<button class="btn ghost sm" data-act="allHw">' + icon('check', 17) + ' ДЗ: всем ✓</button></div>' +
       '<div class="marks-head"><span>Ученик</span><span>Был</span><span>ДЗ</span><span>Активность</span></div>' +
@@ -668,11 +678,14 @@
         html += '<button class="btn block" data-act="edit">' + icon('plus') + ' Добавить награду</button>';
       } else {
         var r = d.rules;
-        html += '<div class="card"><h3>Начисление баллов</h3><div class="sub" style="margin-bottom:12px">Баллы начисляются автоматически при отметках на уроке. Изменения действуют для новых отметок.</div>' +
+        html += '<div class="card"><h3>Начисление баллов</h3><div class="sub" style="margin-bottom:12px">Баллы начисляются автоматически при отметках на уроке. 0 — баллы не давать. Изменения действуют для новых отметок.</div>' +
           [[UI.fieldHtml({ name: 'attendance', type: 'number', label: 'Присутствие', value: r.attendance }), UI.fieldHtml({ name: 'late', type: 'number', label: 'Опоздание', value: r.late })],
             [UI.fieldHtml({ name: 'homework', type: 'number', label: 'ДЗ выполнено', value: r.homework }), UI.fieldHtml({ name: 'homeworkPartial', type: 'number', label: 'ДЗ частично', value: r.homeworkPartial })],
-            [UI.fieldHtml({ name: 'activity', type: 'number', label: 'Активность (за «+»)', value: r.activity }), '<div class="field"></div>']]
+            [UI.fieldHtml({ name: 'activity', type: 'number', label: 'Активность (за «+»)', value: r.activity }), UI.fieldHtml({ name: 'uniform', type: 'number', label: 'Школьная форма', value: r.uniform })]]
             .map(function (p) { return '<div class="field-row">' + p.join('') + '</div>'; }).join('') +
+          '<h3 style="margin-top:6px">За оценки</h3><div class="sub" style="margin-bottom:12px">Оценка ставится в мастере проверки ДЗ, а баллы добавляются к ней.</div>' +
+          '<div class="field-row">' + UI.fieldHtml({ name: 'grade5', type: 'number', label: '«5»', value: r.grade5 }) + UI.fieldHtml({ name: 'grade4', type: 'number', label: '«4»', value: r.grade4 }) +
+          UI.fieldHtml({ name: 'grade3', type: 'number', label: '«3»', value: r.grade3 }) + UI.fieldHtml({ name: 'grade2', type: 'number', label: '«2»', value: r.grade2 }) + '</div>' +
           '<h3 style="margin-top:6px">Серия ДЗ</h3><div class="sub" style="margin-bottom:12px">Бонус за каждые N выполненных ДЗ подряд. 0 — без бонуса.</div>' +
           '<div class="field-row">' + UI.fieldHtml({ name: 'streakLength', type: 'number', label: 'ДЗ подряд (N)', value: r.streakLength }) +
           UI.fieldHtml({ name: 'streakBonus', type: 'number', label: 'Бонус', value: r.streakBonus }) + '</div>' +
@@ -704,7 +717,7 @@
       },
       saveRules: function () {
         var v = {};
-        ['attendance', 'late', 'homework', 'homeworkPartial', 'activity', 'streakLength', 'streakBonus'].forEach(function (k) {
+        ['attendance', 'late', 'homework', 'homeworkPartial', 'activity', 'uniform', 'grade5', 'grade4', 'grade3', 'grade2', 'streakLength', 'streakBonus'].forEach(function (k) {
           v[k] = document.querySelector('[name=' + k + ']').value;
         });
         App.run('t.rules.save', v, { ok: 'Правила сохранены' });
@@ -723,6 +736,9 @@
           '<label class="switch"><input type="checkbox" data-change="ps" data-key="' + key + '"' + (t(s[key]) ? ' checked' : '') + '><span></span></label></div>';
       };
       var html = App.roleSwitcher();
+      html += '<div class="section-title">' + icon('clipboard', 15) + ' Проверка ДЗ</div><div class="card flat">' +
+        '<div class="row tap" data-act="go" data-screen="t.checks">' + icon('calendar') + '<div class="row-main"><div class="row-title">Календарь и настройка проверок</div>' +
+        '<div class="row-sub">' + esc(s.check_subjects ? 'Предметы: ' + s.check_subjects : 'Выберите свои предметы и дни проверки') + '</div></div><span class="chev">' + icon('chev', 16) + '</span></div></div>';
       html += '<div class="section-title">' + icon('upload', 15) + ' Импорт из emaktab</div><div class="card flat">' +
         [['students', 'Список учеников', 'один раз в начале года'], ['schedule', 'Расписание', 'шаблон недели'], ['topics', 'Темы и домашние задания', 'по датам или по КТП']]
           .map(function (k) {

@@ -179,6 +179,42 @@ a { color: var(--link); text-decoration: none; }
 .save-state.err { color: var(--bad); }
 .sticky-bottom { position: sticky; bottom: 0; padding: 10px 0 calc(10px + env(safe-area-inset-bottom)); background: linear-gradient(to top, var(--bg) 82%, transparent); margin-top: 6px; }
 
+/* ─── Мастер проверки ДЗ ─── */
+.wz-hw { display: flex; gap: 10px; align-items: flex-start; color: var(--accent); }
+.wz-hw .row-main { color: var(--text); }
+.wz-att { min-height: 50px; }
+.pill.big { font-size: 13.5px; padding: 5px 12px; min-width: 76px; justify-content: center; }
+.wz-nav { display: flex; align-items: center; gap: 10px; margin: 0 2px 8px; }
+.wz-nav .back[disabled] { opacity: .35; }
+.wz-card { padding: 16px 14px 14px; }
+.wz-name { font-size: 21px; font-weight: 650; text-align: center; margin: 2px 0 10px; line-height: 1.25; }
+.wz-mini { display: flex; gap: 6px; justify-content: center; margin-bottom: 4px; }
+.wz-mini .wz-b { min-height: 34px; font-size: 13.5px; padding: 4px 10px; flex: 0 1 auto; }
+.wz-lbl { font-size: 12.5px; font-weight: 600; color: var(--hint); text-transform: uppercase; letter-spacing: .04em; margin: 14px 2px 6px; }
+.wz-grid { display: grid; gap: 8px; }
+.wz-grid.c2 { grid-template-columns: 1fr 1fr; }
+.wz-grid.c3 { grid-template-columns: 1fr 1fr 1fr; }
+.wz-grid.c5 { grid-template-columns: repeat(5, 1fr); }
+.wz-b { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 54px; border-radius: 12px; border: 1.5px solid var(--line);
+  background: var(--card); font-size: 16px; font-weight: 600; cursor: pointer; padding: 6px; transition: transform .08s; }
+.wz-b:active { transform: scale(.96); }
+.wz-b.on { border-color: transparent; background: var(--text); color: var(--card); }
+.wz-b.on.ok { background: var(--ok); color: #fff; }
+.wz-b.on.warn { background: var(--warn); color: #fff; }
+.wz-b.on.bad { background: var(--bad); color: #fff; }
+.wz-todo { display: flex; align-items: center; gap: 10px; background: var(--muted-warn); }
+.wz-pills { flex-wrap: wrap; justify-content: flex-end; max-width: 55%; gap: 4px; }
+.wz-check { width: 22px; height: 22px; border-radius: 6px; border: 1.5px solid var(--line); display: grid; place-items: center; color: transparent; flex: none; }
+.wz-check.on { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.wz-bulk { display: flex; flex-wrap: wrap; gap: 6px; }
+.wz-bulk .btn { flex: 1 1 30%; }
+.row-title.muted { color: var(--hint); }
+.tile .val small { font-size: 14px; color: var(--hint); font-weight: 500; }
+.chips.wrap { flex-wrap: wrap; overflow: visible; }
+.icon-btn { border: 0; background: none; width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; color: var(--hint); cursor: pointer; flex: none; }
+.icon-btn:active { background: var(--soft); }
+.row-main.tap { cursor: pointer; }
+
 /* ─── Поля ввода ─── */
 .field { display: block; margin-bottom: 12px; }
 .field > span { display: block; font-size: 13px; color: var(--hint); margin: 0 2px 5px; }
@@ -231,6 +267,16 @@ textarea.input { resize: vertical; min-height: 76px; line-height: 1.4; }
 #toast { position: fixed; left: 50%; bottom: calc(var(--tabbar-h) + 18px + env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(20px); background: var(--text); color: var(--card); padding: 10px 16px; border-radius: 12px; font-size: 14px; opacity: 0; pointer-events: none; transition: .2s; z-index: 50; max-width: 90vw; text-align: center; }
 #toast.show { opacity: 1; transform: translateX(-50%); }
 #toast.err { background: var(--bad); color: #fff; }
+
+/* ─── Значок фоновой загрузки ─── */
+#sync { position: fixed; top: 6px; left: 50%; transform: translate(-50%, -8px); z-index: 30; display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 20px; background: var(--card); color: var(--hint);
+  box-shadow: 0 1px 6px rgba(0,0,0,.12); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; max-width: 92vw; white-space: nowrap; }
+#sync.show { opacity: 1; transform: translate(-50%, 0); }
+#sync.ok { color: var(--ok); }
+#sync.err { color: var(--bad); }
+#sync .spin { display: inline-flex; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ─── Загрузка ─── */
 .skel { background: var(--card); border-radius: var(--r); height: 72px; margin-bottom: 10px; position: relative; overflow: hidden; }

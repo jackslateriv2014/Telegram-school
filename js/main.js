@@ -41,10 +41,61 @@ var App = (function () {
   };
   var ROLE_NAMES = { teacher: 'Учитель', student: 'Ученик', parent: 'Родитель' };
 
-  var state = { role: null, roles: [], user: null, stack: [], cache: {}, pending: 0, childId: null, dirty: false, token: 0 };
+  var state = { role: null, roles: [], user: null, stack: [], cache: {}, pending: 0, childId: null, dirty: false, token: 0, fresh: {} };
   var cur = null; // текущий экран: { key, params, data }
 
   function screen(key, def) { Screens[key] = def; }
+
+  // ─── Память в телефоне: последние загруженные экраны ───
+  // При следующем открытии приложение сразу показывает их, а свежие данные подгружает в фоне.
+  var STORE_KEY = 'uchpom_cache_v1', MAX_SCREENS = 40;
+  var Store = {
+    snap: null,
+    read: function () {
+      if (Store.snap) return Store.snap;
+      var x = null;
+      try { x = Api.mode === 'demo' ? null : JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch (e) { x = null; }
+      Store.snap = x && x.v === 1 ? x : { v: 1, boot: null, screens: {}, order: [] };
+      return Store.snap;
+    },
+    put: function (key, data) {
+      if (Api.mode === 'demo') return;
+      var s = Store.read();
+      s.screens[key] = data;
+      s.order = s.order.filter(function (k) { return k !== key; }).concat(key);
+      while (s.order.length > MAX_SCREENS) delete s.screens[s.order.shift()];
+      Store.later();
+    },
+    setBoot: function (b) { if (Api.mode === 'demo') return; Store.read().boot = b; Store.later(); },
+    later: function () { clearTimeout(Store.t); Store.t = setTimeout(Store.write, 400); },
+    write: function () {
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(Store.snap)); }
+      catch (e) { // места мало — оставляем половину самых свежих экранов
+        var s = Store.snap, drop = s.order.splice(0, Math.ceil(s.order.length / 2));
+        drop.forEach(function (k) { delete s.screens[k]; });
+        try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e2) { /* не страшно */ }
+      }
+    },
+    clear: function () { Store.snap = { v: 1, boot: null, screens: {}, order: [] }; try { localStorage.removeItem(STORE_KEY); } catch (e) { /* ignore */ } }
+  };
+  function remember(key, data) { state.cache[key] = data; state.fresh[key] = true; Store.put(key, data); }
+
+  // ─── Значок «обновляется… / ✓ обновлено» (данные грузятся в фоне, экран не блокируется) ───
+  var syncEl = document.getElementById('sync'), syncBusy = 0, syncTimer = null;
+  var Sync = {
+    start: function () {
+      syncBusy++; clearTimeout(syncTimer);
+      if (syncEl) { syncEl.className = 'show'; syncEl.innerHTML = '<span class="spin">' + icon('refresh', 13) + '</span> обновляется'; }
+    },
+    end: function (ok) {
+      syncBusy = Math.max(0, syncBusy - 1);
+      if (syncBusy || !syncEl) return;
+      syncEl.className = 'show ' + (ok ? 'ok' : 'err');
+      syncEl.innerHTML = ok ? icon('check', 13) + ' обновлено' : icon('x', 13) + ' нет связи — показаны сохранённые данные';
+      clearTimeout(syncTimer);
+      syncTimer = setTimeout(function () { syncEl.className = ''; }, ok ? 1300 : 3500);
+    }
+  };
   function cacheKey(e) { return e.key + '|' + JSON.stringify(e.params || {}); }
   function top() { return state.stack[state.stack.length - 1]; }
 
@@ -76,14 +127,19 @@ var App = (function () {
     else view.innerHTML = '<div class="page">' + skeleton() + '</div>';
     syncChrome();
     if (!s.load) { if (cached === undefined) paint(e, null); return; }
+    var bg = cached !== undefined; // экран уже на месте — грузим молча, со значком «обновляется»
+    if (bg) Sync.start();
     s.load(e.params).then(function (data) {
-      if (token !== state.token) return; // пользователь уже ушёл на другой экран
+      if (bg) Sync.end(true);
       var changed = JSON.stringify(data) !== JSON.stringify(cached);
-      state.cache[key] = data;
+      remember(key, data);
+      if (token !== state.token) return; // пользователь уже ушёл на другой экран
       if (cached === undefined || (changed && !state.dirty && !UI.isSheetOpen())) paint(e, data);
+      prefetchSoon();
     }).catch(function (err) {
+      if (bg) Sync.end(false);
       if (token !== state.token) return;
-      if (cached !== undefined) { UI.toast(err.message, true); return; }
+      if (cached !== undefined) return; // остаёмся на сохранённых данных, значок уже сказал «нет связи»
       view.innerHTML = '<div class="page"><div class="card empty">' + icon('x', 28) + '<div>' + esc(err.message) +
         '</div><div style="height:12px"></div><button class="btn ghost sm" data-act="retry">Повторить</button></div></div>';
     });
@@ -101,11 +157,33 @@ var App = (function () {
     if (s.mount) s.mount(view, data, e.params);
     syncChrome();
   }
-  // Перезагрузить данные текущего экрана (после изменения)
+  // Перезагрузить данные текущего экрана (после изменения). Остальные экраны остаются в памяти,
+  // но помечаются устаревшими: при переходе на них покажутся сразу и тихо обновятся.
   function reload() {
-    Object.keys(state.cache).forEach(function (k) { if (k.indexOf(top().key + '|') !== 0) delete state.cache[k]; });
+    state.fresh = {};
     state.dirty = false;
     render();
+  }
+
+  // ─── Подгрузка в фоне: остальные вкладки и уроки на сегодня, чтобы переходы были мгновенными ───
+  var prefetchTimer = null, prefetching = false;
+  function prefetchSoon() { clearTimeout(prefetchTimer); prefetchTimer = setTimeout(prefetch, 600); }
+  function prefetch() {
+    if (prefetching || !state.role) return;
+    var list = (TABS[state.role] || []).map(function (t) { return { key: t.key, params: {} }; });
+    var c = cur && Screens[cur.key];
+    if (c && c.prefetch && cur.data) list = list.concat(c.prefetch(cur.data) || []);
+    var role = state.role;
+    var next = function () {
+      if (state.role !== role) { prefetching = false; return; }
+      var e = list.shift();
+      if (!e) { prefetching = false; return; }
+      var s = Screens[e.key], key = cacheKey(e);
+      if (!s || !s.load || state.fresh[key]) return next();
+      s.load(e.params).then(function (data) { remember(key, data); }, function () { list = []; }).then(next);
+    };
+    prefetching = true;
+    next();
   }
   function repaint(force) { if (cur && (force || (!state.dirty && !UI.isSheetOpen()))) paint(top(), cur.data); }
   function skeleton() { return '<div class="skel" style="height:34px;width:55%;margin-bottom:16px"></div><div class="skel" style="height:120px"></div><div class="skel"></div><div class="skel"></div>'; }
@@ -196,11 +274,30 @@ var App = (function () {
   }
   function boot() {
     tabbar.classList.add('hidden');
+    // Быстрый старт: тот же человек уже открывал приложение — сразу показываем сохранённое, проверяем вход в фоне
+    var snap = Store.read(), me = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+    var quick = Api.mode !== 'demo' && snap.boot && me && String(snap.boot.user.id) === String(me.id) && snap.boot.roles.length;
+    if (!quick && snap.boot) Store.clear(); // другой аккаунт Telegram — старые данные не показываем
+    if (quick) {
+      state.user = snap.boot.user;
+      Object.keys(snap.screens).forEach(function (k) { state.cache[k] = snap.screens[k]; });
+      enter(snap.boot);
+      Api.call('bootstrap').then(function (b) {
+        Store.setBoot(b);
+        if (JSON.stringify(b.roles) !== JSON.stringify(snap.boot.roles)) { // роли изменились (например, ученика убрали)
+          state.cache = {}; Store.clear(); Store.setBoot(b);
+          if (!b.roles.length) return welcome(b);
+          enter(b);
+        }
+      }).catch(function () { /* нет связи — работаем на сохранённых данных */ });
+      return;
+    }
     view.innerHTML = '<div class="page">' + skeleton() + '</div>';
     Api.call('bootstrap').then(function (b) {
       state.user = b.user;
+      if (b.roles.length) Store.setBoot(b);
       if (!b.roles.length && b.startParam) {
-        return Api.call('redeem', { code: b.startParam }).then(enter).catch(function (err) { welcome(b, err.message); });
+        return Api.call('redeem', { code: b.startParam }).then(function (r) { Store.setBoot(r); enter(r); }).catch(function (err) { welcome(b, err.message); });
       }
       if (!b.roles.length) return welcome(b);
       enter(b);
@@ -215,7 +312,8 @@ var App = (function () {
     setRole(Api.mode !== 'demo' && b.roles.indexOf(saved) >= 0 ? saved : b.roles[0]);
   }
   function setRole(role) {
-    state.role = role; state.cache = {}; state.stack = [];
+    state.role = role; state.stack = []; state.fresh = {};
+    if (Api.mode === 'demo') state.cache = {}; // в демо при смене роли меняется и пользователь
     if (Api.mode !== 'demo') localStorage.setItem('uchpom_role', role);
     showTab(TABS[role][0].key);
   }
@@ -233,7 +331,7 @@ var App = (function () {
       e.preventDefault();
       var code = e.target.code.value.trim();
       if (!code) return UI.toast('Введите код');
-      Api.call('redeem', { code: code }).then(function (r) { UI.toast('Готово! Добро пожаловать'); enter(r); })
+      Api.call('redeem', { code: code }).then(function (r) { UI.toast('Готово! Добро пожаловать'); Store.setBoot(r); enter(r); })
         .catch(function (err) { UI.toast(err.message, true); });
     });
   }
@@ -266,6 +364,7 @@ var App = (function () {
   return {
     start: start, boot: boot, screen: screen, go: go, back: back, showTab: showTab, reload: reload, repaint: repaint,
     replaceParams: replaceParams, run: run, syncBackButton: syncBackButton, syncChrome: syncChrome, roleSwitcher: roleSwitcher,
+    remember: function (e, data) { remember(cacheKey(e), data); },
     state: state, get current() { return cur; }
   };
 })();

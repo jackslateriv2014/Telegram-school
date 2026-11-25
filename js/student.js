@@ -68,7 +68,7 @@
       html += Views.checklist(l.id, l.checklist);
       if (d.mark && (d.mark.attendance || d.mark.homework || d.mark.activity)) {
         html += '<div class="section-title">Мои отметки</div><div class="card" style="display:flex;gap:6px;flex-wrap:wrap">' +
-          Views.attPill(d.mark.attendance) + Views.hwPill(d.mark.homework) + (d.mark.activity ? '<span class="pill accent">активность +' + d.mark.activity + '</span>' : '') + '</div>';
+          Views.attPill(d.mark.attendance) + Views.hwPill(d.mark.homework) + Views.gradePill(d.mark.grade) + (d.mark.activity ? '<span class="pill accent">активность +' + d.mark.activity + '</span>' : '') + '</div>';
       }
       return html;
     }

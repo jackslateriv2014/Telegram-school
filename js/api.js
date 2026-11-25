@@ -10,7 +10,20 @@ var Api = (function () {
   var forceDemo = /[?&]demo=1/.test(location.search);
   var mode = !forceDemo && CONFIG.API_URL && isTg ? 'live' : 'demo';
 
+  // Одинаковые запросы на чтение, отправленные одновременно (экран + фоновая подгрузка), идут на сервер один раз
+  // (и повторный такой же запрос в течение 5 секунд берёт уже полученный ответ). Любое изменение сбрасывает это.
+  var inflight = {}, REUSE_MS = 5000;
   function call(action, params) {
+    if (!Logic.isReadOnly(action)) { inflight = {}; return send(action, params); }
+    var key = action + '|' + JSON.stringify(params || {}), x = inflight[key];
+    if (!x || (x.done && Date.now() - x.done > REUSE_MS)) {
+      x = inflight[key] = { p: send(action, params), done: 0 };
+      x.p.then(function () { x.done = Date.now(); }, function () { if (inflight[key] === x) delete inflight[key]; });
+    }
+    return x.p;
+  }
+
+  function send(action, params) {
     if (mode === 'demo') return Demo.call(action, params || {});
     // text/plain — чтобы браузер не делал лишний «предварительный» запрос, который Google не поддерживает
     return fetch(CONFIG.API_URL, {

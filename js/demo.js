@@ -98,7 +98,13 @@ var Demo = (function () {
       [c2, 5, '08:30', '09:10', 'Математика'], [c2, 5, '09:20', '10:00', 'Русский язык'],
       [c3, 1, '10:20', '11:00', 'Математика'], [c3, 2, '09:20', '10:00', 'Русский язык'], [c3, 3, '10:20', '11:00', 'Окружающий мир'],
       [c3, 4, '08:30', '09:10', 'Математика'], [c3, 5, '10:20', '11:00', 'Литературное чтение'], [c3, 6, '09:00', '09:40', 'Математика']]
-      .forEach(function (r) { t('t.template.save', { classId: r[0], weekday: r[1], start: r[2], end: r[3], subject: r[4] }); });
+      .forEach(function (r) {
+        var tid = t('t.template.save', { classId: r[0], weekday: r[1], start: r[2], end: r[3], subject: r[4] }).id;
+        // Учитель проверяет ДЗ по русскому языку: во 2А — по понедельникам и средам, в 3Б — по вторникам
+        if (r[4] === 'Русский язык' && (r[0] === c2 ? r[1] === 1 || r[1] === 3 : r[1] === 2)) t('t.check.slot', { id: tid, on: true, from: U.addDays(today, -28) });
+      });
+    t('t.settings.save', { check_subjects: ['Русский язык'], check_ask_grade: true, check_ask_uniform: false });
+    t('t.rules.save', { grade5: 3, grade4: 2, grade3: 1, grade2: 0 });
 
     // «Характер» учеников: насколько стабильно делают ДЗ и проявляют активность
     var profile = {};
@@ -120,14 +126,15 @@ var Demo = (function () {
       var id = t('t.lesson.save', { id: l.id, topic: topic[0], homework: topic[1], checklist: CHECKLISTS[l.subject],
         material_url: rand() < 0.6 ? 'https://drive.google.com/drive/my-drive' : '',
         material_name: 'Конспект — ' + topic[0] + '.pdf' }).id;
-      var students = l.class_id === c2 ? s2 : s3;
-      t('t.marks.save', { lessonId: id, finish: true, marks: students.map(function (sid) {
+      var students = l.class_id === c2 ? s2 : s3, isCheck = l.check === 'due' && l.date < today;
+      t('t.marks.save', { lessonId: id, finish: true, check: isCheck ? 'done' : '', marks: students.map(function (sid) {
         var r = rand(), pr = profile[sid];
         var att = r < 0.04 ? 'absent' : r < 0.07 ? 'late' : r < 0.085 ? 'excused' : 'present';
         var here = att === 'present' || att === 'late', h = rand();
         var hw = n === 1 || !here ? '' : h < pr.hw ? 'done' : h < pr.hw + 0.12 ? 'partial' : 'none';
         var a = rand();
-        return { studentId: sid, attendance: att, homework: hw, activity: here ? (a < pr.act * 0.35 ? 2 : a < pr.act ? 1 : 0) : 0 };
+        var grade = isCheck && here ? (hw === 'done' ? (rand() < 0.6 ? 5 : 4) : hw === 'partial' ? 3 : 0) : 0;
+        return { studentId: sid, attendance: att, homework: hw, activity: here ? (a < pr.act * 0.35 ? 2 : a < pr.act ? 1 : 0) : 0, grade: grade };
       }) });
     });
 

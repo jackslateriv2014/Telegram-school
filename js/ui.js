@@ -46,7 +46,10 @@ var UI = (function () {
     list: '<path d="M10 6h10M10 12h10M10 18h10M4 6l1.2 1.2L7.5 5M4 12l1.2 1.2L7.5 11M4 18l1.2 1.2L7.5 17"/>',
     play: '<path d="M8 5.5v13l10.5-6.5z"/>',
     school: '<path d="M2.5 9 12 4.5 21.5 9 12 13.5z"/><path d="M6.5 11v5c1.5 1.5 3.3 2.2 5.5 2.2s4-.7 5.5-2.2v-5M21.5 9v5"/>',
-    swap: '<path d="M7 7h12l-3.5-3.5M17 17H5l3.5 3.5"/>'
+    swap: '<path d="M7 7h12l-3.5-3.5M17 17H5l3.5 3.5"/>',
+    refresh: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4v4.5H15"/>',
+    bell: '<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15zM10 20.5a2 2 0 0 0 4 0"/>',
+    clipboard: '<rect x="5" y="4.5" width="14" height="16.5" rx="2"/><path d="M9 4.5V3h6v1.5M8.5 11l2 2 4-4M8.5 17h7"/>'
   };
   function icon(name, size) {
     var s = size || 20;

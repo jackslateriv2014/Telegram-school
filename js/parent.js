@@ -50,7 +50,7 @@
   });
 
   function lessonLine(l, today) {
-    var pills = (l.attendance ? Views.attPill(l.attendance) : '') + ' ' + (l.hw ? Views.hwPill(l.hw) : '') +
+    var pills = (l.attendance ? Views.attPill(l.attendance) : '') + ' ' + (l.hw ? Views.hwPill(l.hw) : '') + ' ' + Views.gradePill(l.grade) +
       (l.activity ? ' <span class="pill accent">+' + l.activity + '</span>' : '');
     if (l.status === 'cancelled') pills = '<span class="pill bad">отменён</span>';
     var tap = l.material_url ? ' tap" data-act="url" data-url="' + esc(l.material_url) : '';
