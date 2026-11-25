@@ -8,5 +8,5 @@
  * Подсказка: чтобы посмотреть демо даже после подключения, добавьте к адресу сайта ?demo=1
  */
 var CONFIG = {
-  API_URL: ''
+  API_URL: 'https://script.google.com/macros/s/AKfycbzcaG1aes_Rw-RtbOqHU-cyg-tWfF6BnSimw4pn01ouc7NRm1MZC2j54__0KVtEWPMMmQ/exec'
 };
