@@ -316,3 +316,38 @@ textarea.input { resize: vertical; min-height: 76px; line-height: 1.4; }
 .card.goal .goal-nums { font-size: 14px; margin-bottom: 4px; }
 .card.goal.done { border: 1.5px solid var(--ok); }
 .top-item.tap { cursor: pointer; }
+
+/* ─── Украшения и образ (0.6) ─── */
+.avatar { flex: none; display: block; }
+.card.lvl .avatar { margin: -4px 0; }
+.card.lvl.tap { cursor: pointer; }
+.look-title { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 10px; margin: 2px 0 2px; background: var(--muted-warn); color: #9a6a07; }
+.look-edit { font-size: 13px; color: var(--accent); margin-top: 4px; display: flex; align-items: center; gap: 4px; }
+.look-hero { text-align: center; display: flex; flex-direction: column; align-items: center; padding: 18px 14px 14px; }
+.top-item .avatar { margin-right: 8px; }
+.shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; margin-bottom: 8px; }
+.shop-it { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px 10px; border-radius: 14px;
+  background: var(--card); border: 2px solid transparent; font: inherit; color: inherit; cursor: pointer; }
+.shop-it.worn { border-color: var(--ok); }
+.shop-it.locked { opacity: .55; }
+.shop-it .t { font-size: 12.5px; font-weight: 600; line-height: 1.2; text-align: center; }
+.shop-it .rar { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; }
+.shop-it.r-rare .rar { color: #2e7dd8; } .shop-it.r-rare:not(.worn) { border-color: rgba(46,125,216,.25); }
+.shop-it.r-epic .rar { color: #7a4fd8; } .shop-it.r-epic:not(.worn) { border-color: rgba(122,79,216,.3); }
+.shop-it.r-legend .rar { color: #c98a16; } .shop-it.r-legend:not(.worn) { border-color: rgba(201,138,22,.4); }
+.shop-it.r-season .rar { color: #d64545; }
+.shop-pv { height: 60px; display: grid; place-items: center; }
+.theme-chip, .title-chip, .none-chip { width: 74px; height: 50px; border-radius: 10px; display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+.title-chip { background: var(--muted-warn); color: #9a6a07; padding: 0 4px; text-align: center; height: auto; min-height: 30px; }
+.none-chip { background: var(--soft); color: var(--hint); width: 50px; border-radius: 50%; }
+/* Темы карточки профиля */
+.theme-space { background: radial-gradient(circle at 20% 30%, rgba(255,255,255,.7) 0 1px, transparent 1.5px), radial-gradient(circle at 75% 20%, rgba(255,255,255,.6) 0 1px, transparent 1.5px),
+  radial-gradient(circle at 60% 80%, rgba(255,255,255,.5) 0 1px, transparent 1.5px), linear-gradient(135deg, #1d2259, #45307a) !important; color: #fff; }
+.theme-ocean { background: linear-gradient(135deg, #1677b8, #3fc1d6) !important; color: #fff; }
+.theme-forest { background: linear-gradient(135deg, #276b43, #6fbf63) !important; color: #fff; }
+.theme-sunset { background: linear-gradient(135deg, #e8664f, #f5b85a) !important; color: #fff; }
+[class*="theme-"] .sub, [class*="theme-"] .look-edit { color: rgba(255,255,255,.88); }
+[class*="theme-"] .row-title { color: #fff; }
+[class*="theme-"] .gbar { background: rgba(255,255,255,.3); }
+[class*="theme-"] .gbar i { background: #fff; }
+[class*="theme-"] .look-title { background: rgba(255,255,255,.25); color: #fff; }

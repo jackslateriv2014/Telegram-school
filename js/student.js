@@ -84,7 +84,9 @@
       var html = '<div class="card"><div class="sub">Можно потратить</div><div class="balance"><span class="big">' + d.available + '</span><span class="unit">' +
         UI.plural(d.available, ['балл', 'балла', 'баллов']) + '</span></div>' +
         (d.pending ? '<div class="sub" style="margin-top:6px">Ещё ' + d.pending + ' в резерве — ждут решения учителя</div>' : '') + '</div>';
-      html += '<div class="section-title">Что можно получить</div>';
+      html += '<div class="card flat"><div class="row tap" data-act="go" data-screen="s.look">' + icon('star') + '<div class="row-main"><div class="row-title">Украшения для аватара</div>' +
+        '<div class="row-sub">Персонажи, шапки, рамки, темы — сразу, без ожидания</div></div><span class="chev">' + icon('chev', 16) + '</span></div></div>';
+      html += '<div class="section-title">Настоящие награды (подтверждает учитель)</div>';
       html += d.rewards.length ? '<div class="card flat">' + d.rewards.map(function (r) {
         var lack = r.cost - d.available;
         return '<div class="row"><div class="row-main"><div class="row-title wrap">' + esc(r.title) + '</div>' +

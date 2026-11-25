@@ -11,10 +11,16 @@ var Game = (function () {
   function bar(pct, cls) {
     return '<div class="gbar' + (cls ? ' ' + cls : '') + '"><i style="width:' + Math.max(0, Math.min(100, pct)) + '%"></i></div>';
   }
-  function levelCard(lv) {
+  // look — образ (аватар, тема, титул); opts.edit — ученик может нажать и открыть «Мой образ»
+  function levelCard(lv, look, opts) {
     if (!lv) return '';
-    return '<div class="card lvl"><div class="lvl-badge">' + lv.level + '</div><div class="row-main"><div class="row-title">Уровень ' + lv.level + ' · ' + esc(lv.name) + '</div>' +
-      bar(lv.pct) + '<div class="sub">' + (lv.next ? 'До уровня «' + esc(lv.next) + '» — ещё ' + UI.pts(lv.toNext) : 'Максимальный уровень!') + '</div></div></div>';
+    opts = opts || {};
+    var av = look ? Avatar.svg(look, 60) : '<div class="lvl-badge">' + lv.level + '</div>';
+    return '<div class="card lvl' + (look && look.theme ? ' theme-' + look.theme : '') + (opts.edit ? ' tap" data-act="go" data-screen="s.look' : '') + '">' + av +
+      '<div class="row-main"><div class="row-title">Уровень ' + lv.level + ' · ' + esc(lv.name) + '</div>' +
+      (look && look.titleText ? '<div class="look-title">' + esc(look.titleText) + '</div>' : '') +
+      bar(lv.pct) + '<div class="sub">' + (lv.next ? 'До уровня «' + esc(lv.next) + '» — ещё ' + UI.pts(lv.toNext) : 'Максимальный уровень!') + '</div>' +
+      (opts.edit ? '<div class="look-edit">' + icon('edit', 14) + ' Мой образ и украшения</div>' : '') + '</div></div>';
   }
   // Значки-кружки. opts.remove — у учителя кнопка «снять»; замечания выделены и подписаны «исчезнет через N дн.»
   function badgeList(list, opts) {
@@ -40,7 +46,7 @@ var Game = (function () {
       (opts.footer || '') + '</div>';
   }
   // Блоки для главной ученика / родителя
-  function pupilTop(game) { return game ? levelCard(game.level) + goalCard(game.goal) : ''; }
+  function pupilTop(game, opts) { return game ? levelCard(game.level, game.look, { edit: !(opts && opts.parent) }) + goalCard(game.goal) : ''; }
   function pupilBadges(game, opts) {
     if (!game) return '';
     opts = opts || {};
@@ -59,15 +65,77 @@ var Game = (function () {
   App.action('mate', function (el) {
     if (!el.dataset.id) return;
     Api.call('s.classmate', { id: el.dataset.id }).then(function (p) {
-      UI.info(p.name, '<div class="card lvl" style="margin-bottom:10px"><div class="lvl-badge">' + p.level.level + '</div><div class="row-main"><div class="row-title">Уровень ' +
-        p.level.level + ' · ' + esc(p.level.name) + '</div></div></div>' + badgeList(p.badges, { empty: 'Значков пока нет' }));
+      UI.info(p.name, '<div class="card lvl' + (p.look.theme ? ' theme-' + p.look.theme : '') + '" style="margin-bottom:10px">' + Avatar.svg(p.look, 64) + '<div class="row-main"><div class="row-title">Уровень ' +
+        p.level.level + ' · ' + esc(p.level.name) + '</div>' + (p.look.titleText ? '<div class="look-title">' + esc(p.look.titleText) + '</div>' : '') + '</div></div>' + badgeList(p.badges, { empty: 'Значков пока нет' }));
     }, function (e) { UI.toast(e.message, true); });
   });
+
+  // ─────────── Ученик: «Мой образ» (аватар и украшения) ───────────
+  var CATS = [['char', 'Персонаж'], ['color', 'Цвет'], ['hat', 'Шапка'], ['acc', 'Аксессуар'], ['frame', 'Рамка'], ['theme', 'Тема'], ['title', 'Титул']];
+  var RARITY = { rare: ['rare', 'редкое'], epic: ['epic', 'эпическое'], legend: ['legend', 'легендарное'], season: ['season', 'сезонное'] };
+  var THEME_NAMES = { space: 'Космос', ocean: 'Океан', forest: 'Лес', sunset: 'Закат' };
+  App.state.lookCat = 'char';
+  function preview(d, it) {
+    var l = Object.assign({}, d.look);
+    if (it.type === 'theme') return '<div class="theme-chip theme-' + it.id + '">' + esc(it.name) + '</div>';
+    if (it.type === 'title') return '<div class="title-chip">' + esc(it.name) + '</div>';
+    l[it.type] = it.id;
+    if (it.type === 'char') { l.hat = ''; l.acc = ''; } // персонажа видно целиком
+    return Avatar.svg(l, 58);
+  }
+  function seasonEnd(mmdd) { return mmdd ? 'до ' + (+mmdd.slice(2)) + '.' + mmdd.slice(0, 2) : ''; }
+  App.screen('s.look', {
+    title: 'Мой образ',
+    load: function () { return Api.call('s.shop'); },
+    render: function (d) {
+      var cat = App.state.lookCat, l = d.look;
+      var html = '<div class="card look-hero' + (l.theme ? ' theme-' + l.theme : '') + '">' + Avatar.svg(l, 110) +
+        '<div class="row-title" style="font-size:18px;margin-top:6px">' + esc(d.name) + '</div>' +
+        (l.titleText ? '<div class="look-title">' + esc(l.titleText) + '</div>' : '') +
+        '<div class="sub">Уровень ' + d.level.level + ' · ' + esc(d.level.name) + ' · можно потратить <b>' + d.available + '</b> б.</div></div>';
+      html += '<div class="chips">' + CATS.map(function (c) {
+        return '<button class="chip' + (c[0] === cat ? ' on' : '') + '" data-act="cat" data-c="' + c[0] + '">' + c[1] + '</button>';
+      }).join('') + '</div>';
+      var list = d.items.filter(function (i) { return i.type === cat; });
+      var canOff = ['hat', 'acc', 'frame', 'theme', 'title'].indexOf(cat) >= 0;
+      html += '<div class="shop-grid">' + (canOff ? '<button class="shop-it' + (!l[cat] ? ' worn' : '') + '" data-act="off"><div class="shop-pv"><div class="none-chip">' + icon('x', 22) + '</div></div><div class="t">Без украшения</div></button>' : '') +
+        list.map(function (it) {
+          var r = RARITY[it.rarity], state;
+          if (it.worn) state = '<span class="pill ok">надето</span>';
+          else if (it.owned) state = '<span class="pill">надеть</span>';
+          else if (it.locked) state = '<span class="pill">' + icon('lock', 12) + ' ' + it.level + ' уровень</span>';
+          else state = '<span class="pill ' + (it.price > d.available ? '' : 'accent') + '">' + it.price + ' б.</span>';
+          return '<button class="shop-it' + (it.worn ? ' worn' : '') + (it.locked ? ' locked' : '') + (r ? ' r-' + r[0] : '') + '" data-act="item" data-id="' + it.id + '">' +
+            '<div class="shop-pv">' + preview(d, it) + '</div><div class="t">' + esc(it.name) + '</div>' +
+            (r ? '<div class="rar">' + r[1] + (it.season ? ' · ' + seasonEnd(it.season) : '') + '</div>' : '') + state + '</button>';
+        }).join('') + '</div>';
+      html += '<div class="sub" style="margin:4px 4px 12px">Украшения покупаются сразу, без одобрения учителя, и остаются навсегда. Уровень от покупок не падает.</div>';
+      return html;
+    },
+    actions: {
+      cat: function (el) { App.state.lookCat = el.dataset.c; App.repaint(true); },
+      off: function () { wear(App.state.lookCat, ''); },
+      item: function (el, d) {
+        var it = d.items.find(function (x) { return x.id === el.dataset.id; });
+        if (it.worn) return;
+        if (it.owned) return wear(it.type, it.id);
+        if (it.locked) return UI.toast('Откроется на ' + it.level + ' уровне. Сейчас у тебя ' + d.level.level + '-й.');
+        if (it.price > d.available) return UI.toast('Не хватает ' + (it.price - d.available) + ' б. Копи дальше!');
+        UI.confirm('Купить «' + it.name + '» за ' + it.price + ' ' + UI.plural(it.price, ['балл', 'балла', 'баллов']) + '? Баллы спишутся сразу.', 'Купить').then(function (ok) {
+          if (ok) App.run('s.shop.buy', { item: it.id }, { ok: 'Готово! «' + it.name + '» теперь твоё' });
+        });
+      }
+    }
+  });
+  function wear(slot, id) {
+    UI.haptic('select');
+    App.run('s.look.save', { slot: slot, item: id });
+  }
 
   // ─────────── Учитель: значки в карточке ученика ───────────
   function teacherSection(d) {
     var html = '<div class="section-title">' + icon('star', 15) + ' Уровень и значки<span class="grow"></span><a data-act="giveBadge">+ Дать значок</a></div>';
-    html += levelCard(d.level);
+    html += levelCard(d.level, d.look);
     var good = d.badges.filter(function (b) { return b.kind !== 'warn'; }), warn = d.badges.filter(function (b) { return b.kind === 'warn'; });
     html += badgeList(good, { remove: true, empty: 'Значков пока нет — нажмите «Дать значок»' });
     if (warn.length) html += '<div class="sub" style="margin:10px 4px 6px">Замечания (видят только ученик и родитель):</div>' + badgeList(warn, { remove: true });
@@ -155,6 +223,6 @@ var Game = (function () {
     }
   });
 
-  function pupilBlocks(game, opts) { return pupilTop(game) + pupilBadges(game, opts); }
+  function pupilBlocks(game, opts) { return pupilTop(game, opts) + pupilBadges(game, opts); }
   return { levelCard: levelCard, badgeList: badgeList, goalCard: goalCard, pupilBlocks: pupilBlocks, pupilTop: pupilTop, pupilBadges: pupilBadges, teacherSection: teacherSection };
 })();

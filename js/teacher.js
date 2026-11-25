@@ -785,7 +785,10 @@
               '</div><div class="row-sub">' + k[2] + '</div></div><span class="chev">' + icon('chev', 16) + '</span></div>';
           }).join('') + '</div>';
       html += '<div class="section-title">' + icon('star', 15) + ' Игровой режим</div><div class="card" style="padding:4px 14px">' +
-        tog('game_enabled', 'Уровни, значки и цель класса', 'Ученики видят свой уровень, значки и общую цель; одноклассники — уровень и значки друг друга') + '</div>';
+        tog('game_enabled', 'Уровни, значки, цель класса и украшения', 'Ученики видят свой уровень, значки, общую цель и покупают украшения для аватара; одноклассники видят аватар, уровень и значки друг друга') +
+        '<div class="sub" style="margin:8px 0 6px">Цены украшений</div><div class="seg">' + [[50, 'Дешевле ½'], [100, 'Обычные'], [150, '×1,5'], [200, '×2']].map(function (x) {
+          return '<button data-act="price" data-v="' + x[0] + '" class="' + (+(s.shop_price_pct || 100) === x[0] ? 'on' : '') + '">' + x[1] + '</button>';
+        }).join('') + '</div></div>';
       html += '<div class="section-title">' + icon('eye', 15) + ' Что видят родители</div><div class="card" style="padding:4px 14px">' +
         tog('parent_show_attendance', 'Посещаемость') + tog('parent_show_homework', 'Сдача домашних заданий') +
         tog('parent_show_points', 'Баллы, история и достижения') + tog('parent_show_materials', 'Темы уроков, ДЗ и конспекты') + '</div>' +
@@ -807,6 +810,7 @@
     },
     actions: {
       ps: function (el) { var p = {}; p[el.dataset.key] = el.checked; App.run('t.settings.save', p, { ok: 'Сохранено' }); },
+      price: function (el) { App.run('t.settings.save', { shop_price_pct: +el.dataset.v }, { ok: 'Цены сохранены' }); },
       saveProfile: function () {
         var v = function (n) { return document.querySelector('[name=' + n + ']').value; };
         App.run('t.settings.save', { teacher_name: v('teacher_name'), bot_username: v('bot_username'), app_short_name: v('app_short_name') }, { ok: 'Сохранено' });

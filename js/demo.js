@@ -190,6 +190,14 @@ var Demo = (function () {
     t('t.badge.give', { studentIds: [s2[0]], key: 'helper', note: 'помог подготовить опыт' });
     t('t.badge.give', { studentIds: [s2[0], s2[2]], key: 'answer' });
     t('t.badge.give', { studentIds: [s2[0]], key: 'late', note: 'два опоздания на этой неделе' });
+    // Украшения: у Миши кепка и очки, у пары одноклассников свои образы
+    var dress = function (sid, items, look) {
+      items.forEach(function (it) { db.insert('shop', { id: U.uid('s'), student_id: sid, item: it, cost: 0, at: stamp }); });
+      db.all('students').find(function (x) { return x.id === sid; }).look = JSON.stringify(look);
+    };
+    dress(s2[0], ['fox', 'cap', 'glasses', 'space'], { char: 'fox', color: 'orange', hat: 'cap', acc: 'glasses', theme: 'space' });
+    dress(s2[1], ['owl', 'purple', 'headphones'], { char: 'owl', color: 'purple', hat: 'headphones' });
+    dress(s2[3], ['pink', 'bowtie', 'silver'], { char: 'bear', color: 'pink', acc: 'bowtie', frame: 'silver' });
     db.data.journal = []; // «История изменений» в демо начинается с чистого листа
   }
 

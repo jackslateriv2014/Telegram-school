@@ -17,7 +17,7 @@
 var Logic = (function () {
   'use strict';
 
-  var VERSION = '0.5.0';
+  var VERSION = '0.6.0';
 
   // ───────────────────────── Структура листов таблицы ─────────────────────────
   // [ключ в коде, заголовок столбца в таблице, тип]
@@ -37,7 +37,7 @@ var Logic = (function () {
       ['id', 'ID'], ['class_id', 'ID класса'], ['name', 'Имя и фамилия'], ['status', 'Статус'],
       ['balance', 'Баланс (авто)', 'num'], ['note_good', 'Получается'], ['note_weak', 'Проседает'],
       ['note_repeat', 'Повторить'], ['note_parent', 'Заметки видны родителю', 'bool'],
-      ['note_updated', 'Заметки обновлены', 'datetime'], ['created_at', 'Добавлен', 'datetime']] },
+      ['note_updated', 'Заметки обновлены', 'datetime'], ['created_at', 'Добавлен', 'datetime'], ['look', 'Образ (заполняется сам)']] },
     templates: { sheet: 'Расписание (шаблон)', cols: [
       ['id', 'ID'], ['class_id', 'ID класса'], ['weekday', 'День недели (1=Пн)', 'num'],
       ['start', 'Начало', 'time'], ['end', 'Конец', 'time'], ['subject', 'Предмет'], ['room', 'Кабинет'],
@@ -78,7 +78,10 @@ var Logic = (function () {
     // Общая цель класса: все заработанные баллы класса идут в копилку цели
     goals: { sheet: 'Цели класса', cols: [
       ['id', 'ID'], ['class_id', 'ID класса'], ['title', 'Приз'], ['target', 'Нужно баллов', 'num'], ['from', 'С даты', 'date'],
-      ['until', 'До даты', 'date'], ['status', 'Статус'], ['done_at', 'Достигнута', 'datetime']] }
+      ['until', 'До даты', 'date'], ['status', 'Статус'], ['done_at', 'Достигнута', 'datetime']] },
+    // Купленные украшения (аватар, рамки, темы, титулы). Баллы списываются в «Истории баллов».
+    shop: { sheet: 'Украшения', cols: [
+      ['id', 'ID'], ['student_id', 'ID ученика'], ['item', 'Украшение'], ['cost', 'Цена', 'num'], ['at', 'Куплено', 'datetime']] }
   };
 
   // Настройки по умолчанию: [параметр, значение, пояснение для учителя]
@@ -107,7 +110,8 @@ var Logic = (function () {
     ['parent_show_homework', 'true', 'Родитель видит сдачу ДЗ'],
     ['parent_show_points', 'true', 'Родитель видит баллы и историю'],
     ['parent_show_materials', 'true', 'Родитель видит темы и конспекты'],
-    ['game_enabled', 'true', 'Игровой режим для учеников: уровни, значки, цель класса']
+    ['game_enabled', 'true', 'Игровой режим для учеников: уровни, значки, цель класса, украшения'],
+    ['shop_price_pct', '100', 'Цены украшений, % от обычных (50 = вдвое дешевле)']
   ];
 
   var ATTENDANCE = ['', 'present', 'absent', 'late', 'excused'];
@@ -117,7 +121,7 @@ var Logic = (function () {
   // Действия, которые только читают данные (сервер выполняет их без блокировки — быстрее).
   var READ_ACTIONS = {
     'bootstrap': 1, 't.home': 1, 't.class': 1, 't.student': 1, 't.week': 1, 't.lesson': 1,
-    't.rewards': 1, 't.checks': 1, 't.journal': 1, 't.mass.preview': 1, 't.goal': 1, 's.classmate': 1, 's.home': 1, 's.week': 1, 's.lesson': 1, 's.rewards': 1, 's.history': 1, 'p.home': 1
+    't.rewards': 1, 't.checks': 1, 't.journal': 1, 't.mass.preview': 1, 't.goal': 1, 's.classmate': 1, 's.shop': 1, 's.home': 1, 's.week': 1, 's.lesson': 1, 's.rewards': 1, 's.history': 1, 'p.home': 1
   };
 
   // ───────────────────────── Маленькие помощники ─────────────────────────
@@ -572,6 +576,64 @@ var Logic = (function () {
     return db.all('users').filter(function (u) { return u.role === 'teacher'; }).map(function (u) { return String(u.tg_id); });
   }
 
+  // ───────────────────────── Украшения: аватар, рамки, темы, титулы ─────────────────────────
+  // [id, вид, название, цена, с какого уровня, редкость, сезон 'ММДД-ММДД']. Цена 0 — есть у всех сразу.
+  // Всё рисуется кодом в приложении (avatar.js), картинки не нужны.
+  var SHOP = [
+    ['cat', 'char', 'Кот', 0, 1], ['bear', 'char', 'Медвежонок', 0, 1], ['robot', 'char', 'Робот', 0, 1],
+    ['fox', 'char', 'Лиса', 30, 1], ['owl', 'char', 'Сова', 30, 2], ['astro', 'char', 'Космонавт', 60, 3, 'rare'],
+    ['dragon', 'char', 'Дракончик', 120, 4, 'epic'],
+    ['blue', 'color', 'Голубой', 0, 1], ['green', 'color', 'Зелёный', 0, 1], ['orange', 'color', 'Оранжевый', 0, 1],
+    ['pink', 'color', 'Розовый', 15, 1], ['purple', 'color', 'Фиолетовый', 15, 1], ['mint', 'color', 'Мятный', 15, 2],
+    ['gold', 'color', 'Золотой', 80, 4, 'rare'],
+    ['cap', 'hat', 'Кепка', 25, 1], ['headphones', 'hat', 'Наушники', 40, 2], ['wizard', 'hat', 'Шляпа волшебника', 50, 3],
+    ['crown', 'hat', 'Корона', 100, 4, 'epic'], ['santa', 'hat', 'Новогодняя шапка', 40, 1, 'season', '1201-0115'],
+    ['flowers', 'hat', 'Венок к Навруз', 40, 1, 'season', '0310-0331'],
+    ['glasses', 'acc', 'Очки', 25, 1], ['bowtie', 'acc', 'Бабочка', 30, 2], ['scarf', 'acc', 'Шарф', 35, 2], ['medal', 'acc', 'Медаль', 70, 3, 'rare'],
+    ['silver', 'frame', 'Серебряная рамка', 60, 3, 'rare'], ['goldframe', 'frame', 'Золотая рамка', 150, 5, 'epic'],
+    ['rainbow', 'frame', 'Радужная рамка', 200, 6, 'legend'],
+    ['space', 'theme', 'Космос', 50, 2], ['ocean', 'theme', 'Океан', 50, 2], ['forest', 'theme', 'Лес', 50, 3], ['sunset', 'theme', 'Закат', 70, 4, 'rare'],
+    ['t_smart', 'title', 'Умник', 40, 2], ['t_star', 'title', 'Звезда класса', 120, 4, 'rare'], ['t_hero', 'title', 'Герой знаний', 200, 5, 'epic'],
+    ['t_legend', 'title', 'Легенда', 300, 8, 'legend']
+  ];
+  var LOOK_SLOTS = ['char', 'color', 'hat', 'acc', 'frame', 'theme', 'title'];
+  var SHOP_BY_ID = {};
+  SHOP.forEach(function (x) { SHOP_BY_ID[x[0]] = x; });
+  function inSeason(item, today) {
+    if (!item[6]) return true;
+    var md = today.slice(5, 7) + today.slice(8, 10), r = item[6].split('-');
+    return r[0] <= r[1] ? md >= r[0] && md <= r[1] : md >= r[0] || md <= r[1];
+  }
+  function priceOf(item, settings) {
+    var pct = Math.max(25, Math.min(400, num(settings.shop_price_pct) || 100));
+    return Math.round(item[3] * pct / 100);
+  }
+  function ownedItems(db, sid) {
+    var m = {};
+    db.all('shop').forEach(function (r) { if (same(r.student_id, sid)) m[r.item] = 1; });
+    SHOP.forEach(function (x) { if (!x[3]) m[x[0]] = 1; });
+    return m;
+  }
+  // Образ ученика. Кто ещё ничего не выбирал — получает одного из бесплатных персонажей (разных у разных детей).
+  function lookOf(st, owned) {
+    var raw = {};
+    try { raw = JSON.parse(str(st.look) || '{}') || {}; } catch (e) { raw = {}; }
+    var h = 0, id = String(st.id);
+    for (var i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 997;
+    var look = { char: ['cat', 'bear', 'robot'][h % 3], color: ['blue', 'green', 'orange'][(h >> 2) % 3], hat: '', acc: '', frame: '', theme: '', title: '' };
+    LOOK_SLOTS.forEach(function (slot) {
+      var it = SHOP_BY_ID[raw[slot]];
+      if (it && it[1] === slot && (!owned || owned[it[0]])) look[slot] = it[0];
+    });
+    look.titleText = look.title ? SHOP_BY_ID[look.title][2] : '';
+    return look;
+  }
+  function lookMap(db) {
+    var m = {};
+    db.all('students').forEach(function (s) { m[s.id] = lookOf(s); });
+    return m;
+  }
+
   // ───────────────────────── Топ лучших ─────────────────────────
   function topSettings(cls) {
     var size = num(cls.top_size);
@@ -611,14 +673,14 @@ var Logic = (function () {
         .sort(function (a, b) { return b.value - a.value || (a.s.name < b.s.name ? -1 : 1); }));
     }
     t.items = ranked.slice(0, t.size).map(function (x, i) {
-      return { place: i + 1, student_id: x.s.id, name: x.s.name, value: x.value, pinned: !!x.pinned };
+      return { place: i + 1, student_id: x.s.id, name: x.s.name, value: x.value, pinned: !!x.pinned, look: lookOf(x.s) };
     });
     return t;
   }
   // Ученикам и родителям — только имена и места, без чужих баллов.
   function publicTop(top, myId) {
     return { size: top.size, mode: top.mode, period: top.period, items: top.items.map(function (x) {
-      return { place: x.place, id: x.student_id, name: x.name, me: same(x.student_id, myId), pinned: top.mode !== 'manual' && x.pinned };
+      return { place: x.place, id: x.student_id, name: x.name, me: same(x.student_id, myId), pinned: top.mode !== 'manual' && x.pinned, look: x.look };
     }) };
   }
 
@@ -1035,7 +1097,7 @@ var Logic = (function () {
         note_parent: truthy(st.note_parent), note_updated: st.note_updated },
       balance: balanceMap(db)[st.id] || 0, pending: pendingMap(db)[st.id] || 0, earned: earned, stats: stats,
       achievements: achievements(stats, earned, monthExtra(db, st.id, ctx.today)),
-      level: levelOf(earned), badges: badgesOf(db, st.id, ctx.today, { warn: true, expired: true }), catalog: badgeCatalog(),
+      level: levelOf(earned), badges: badgesOf(db, st.id, ctx.today, { warn: true, expired: true }), catalog: badgeCatalog(), look: lookOf(st, ownedItems(db, st.id)),
       ledger: sortBy(db.all('ledger').filter(function (l) { return same(l.student_id, st.id); }), function (l) { return l.at; })
         .reverse().slice(0, 60).map(function (l) { return { id: l.id, at: l.at, amount: num(l.amount), type: l.type, reason: l.reason }; }),
       marks: marks,
@@ -1403,6 +1465,11 @@ var Logic = (function () {
         .map(function (x) { return str(x, 60).replace(/,/g, ' '); }).filter(Boolean);
       setSetting(db, 'check_subjects', subj.join(', '));
     }
+    if (p.shop_price_pct !== undefined) {
+      var pct = Math.round(num(p.shop_price_pct));
+      if (pct < 25 || pct > 400) fail('Цены украшений — от 25% до 400%.');
+      setSetting(db, 'shop_price_pct', pct);
+    }
     if (p.remind_hour !== undefined) {
       var h = Math.round(num(p.remind_hour));
       if (h < 0 || h > 23) fail('Час напоминания — от 0 до 23.');
@@ -1767,7 +1834,7 @@ var Logic = (function () {
   function pupilGame(db, ctx, st, earned) {
     if (!gameOn(ctx)) return null;
     var g = st.class_id ? currentGoal(db, ctx, st.class_id) : null;
-    return { level: levelOf(earned), badges: badgesOf(db, st.id, ctx.today, { warn: true }),
+    return { level: levelOf(earned), badges: badgesOf(db, st.id, ctx.today, { warn: true }), look: lookOf(st, ownedItems(db, st.id)),
       goal: g ? goalView(db, ctx, g, { sid: st.id }) : null };
   }
   // Профиль одноклассника: только имя, уровень и хорошие значки (без баллов, оценок и замечаний).
@@ -1779,8 +1846,58 @@ var Logic = (function () {
     var auto = achievements(stats, earned, monthExtra(db, st.id, ctx.today)).filter(function (a) { return a.done; })
       .map(function (a) { return { title: a.title, icon: a.icon, kind: 'good' }; });
     var lvl = levelOf(earned);
-    return { name: st.name, me: same(st.id, me.id), level: { level: lvl.level, name: lvl.name },
+    return { name: st.name, me: same(st.id, me.id), level: { level: lvl.level, name: lvl.name }, look: lookOf(st, ownedItems(db, st.id)),
       badges: badgesOf(db, st.id, ctx.today).map(function (b) { return { title: b.title, icon: b.icon, kind: 'good', note: b.note }; }).concat(auto) };
+  };
+
+  // ─── Ученик: «Мой образ» — украшения покупаются сразу за те же баллы, что и награды ───
+  A['s.shop'] = function (db, ctx) {
+    if (!gameOn(ctx)) fail('Украшения выключены учителем.');
+    var st = activeStudent(db, ctx.studentId), owned = ownedItems(db, st.id), look = lookOf(st, owned);
+    var bal = balanceMap(db)[st.id] || 0, pend = pendingMap(db)[st.id] || 0, lvl = levelOf(earnedMap(db, '')[st.id] || 0);
+    var items = SHOP.filter(function (x) { return owned[x[0]] || inSeason(x, ctx.today); }).map(function (x) {
+      return { id: x[0], type: x[1], name: x[2], price: priceOf(x, ctx.settings), level: x[4], rarity: x[5] || '',
+        season: x[6] ? x[6].split('-')[1] : '', owned: !!owned[x[0]], worn: look[x[1]] === x[0], locked: !owned[x[0]] && lvl.level < x[4] };
+    });
+    return { name: st.name, look: look, items: items, balance: bal, available: bal - pend, level: lvl };
+  };
+  A['s.shop.buy'] = function (db, ctx, p) {
+    if (!gameOn(ctx)) fail('Украшения выключены учителем.');
+    var st = activeStudent(db, ctx.studentId), it = SHOP_BY_ID[p.item], owned = ownedItems(db, st.id);
+    if (!it || (!inSeason(it, ctx.today) && !owned[it[0]])) fail('Этого украшения сейчас нет.');
+    if (owned[it[0]]) fail('Это уже ваше — просто наденьте.');
+    var lvl = levelOf(earnedMap(db, '')[st.id] || 0);
+    if (lvl.level < it[4]) fail('Откроется на ' + it[4] + ' уровне.');
+    var price = priceOf(it, ctx.settings), available = (balanceMap(db)[st.id] || 0) - (pendingMap(db)[st.id] || 0);
+    if (available < price) fail('Не хватает баллов: нужно ' + price + ', доступно ' + available + '.');
+    var row = db.insert('shop', { id: uid('s'), student_id: st.id, item: it[0], cost: price, at: ctx.nowStr });
+    if (price) db.insert('ledger', { id: uid('p'), student_id: st.id, at: ctx.nowStr, amount: -price, type: 'shop', reason: 'Украшение: ' + it[2], ref: 'shop:' + row.id });
+    owned[it[0]] = 1;
+    var look = lookOf(st, owned);
+    look[it[1]] = it[0];
+    saveLook(db, st, look);
+    refreshBalances(db, [st.id]);
+    return { ok: true };
+  };
+  function saveLook(db, st, look) {
+    var out = {};
+    LOOK_SLOTS.forEach(function (s) { if (look[s]) out[s] = look[s]; });
+    db.update('students', st, { look: JSON.stringify(out) });
+  }
+  // Надеть / снять. p.slot + p.item ('' — снять; персонажа и цвет снять нельзя).
+  A['s.look.save'] = function (db, ctx, p) {
+    if (!gameOn(ctx)) fail('Украшения выключены учителем.');
+    var st = activeStudent(db, ctx.studentId), owned = ownedItems(db, st.id), look = lookOf(st, owned);
+    if (LOOK_SLOTS.indexOf(p.slot) < 0) fail('Неизвестный вид украшения.');
+    if (!p.item) { if (p.slot === 'char' || p.slot === 'color') fail('Это снять нельзя — выберите другое.'); look[p.slot] = ''; }
+    else {
+      var it = SHOP_BY_ID[p.item];
+      if (!it || it[1] !== p.slot) fail('Неизвестное украшение.');
+      if (!owned[it[0]]) fail('Сначала купите это украшение.');
+      look[p.slot] = it[0];
+    }
+    saveLook(db, st, look);
+    return { look: lookOf(st, owned) };
   };
 
   // ─── Ученик ───
