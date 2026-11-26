@@ -116,9 +116,19 @@ var Importer = (function () {
     ['avg', 8], ['sen', 9], ['okt', 10], ['noy', 11], ['dek', 12], ['jan', 1], ['feb', 2], ['jun', 6], ['jul', 7], ['aug', 8],
     ['sep', 9], ['oct', 10], ['nov', 11], ['dec', 12], ['ян', 1], ['фев', 2], ['ноя', 11], ['дек', 12]];
   // Год не указан → берём учебный год: сентябрь–декабрь — год начала, январь–август — следующий.
+  // «Сегодня», «Завтра», «Вчера» (так emaktab пишет вместо даты у ближайших уроков), также по-узбекски
+  var RELATIVE = [[/(^|[^a-zа-я])(послезавтра|indinga|индинга)/, 2], [/(^|[^a-zа-я])(позавчера)/, -2], [/(^|[^a-zа-я])(сегодня|bugun|бугун)/, 0],
+    [/(^|[^a-zа-я])(завтра|ertaga|эртага)/, 1], [/(^|[^a-zа-я])(вчера|kecha|кеча)/, -1]];
   function parseDate(s, today) {
     s = low(s);
     var y, mo, d, m;
+    var rel = RELATIVE.find(function (r) { return r[0].test(s); });
+    if (rel && !/\d{1,2}[./-]\d{1,2}|\d{1,2}\s+[a-zа-я]{3,}/.test(s.replace(/\d+\s*(урок|dars|дарс|soat)/g, ''))) {
+      var base = today ? today.split('-').map(Number) : null;
+      var t0 = base ? new Date(base[0], base[1] - 1, base[2]) : new Date();
+      t0.setDate(t0.getDate() + rel[1]);
+      return t0.getFullYear() + '-' + pad(t0.getMonth() + 1) + '-' + pad(t0.getDate());
+    }
     if ((m = /(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s))) { y = +m[1]; mo = +m[2]; d = +m[3]; }
     else if ((m = /(?:^|[^\d:])(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?(?![\d:])/.exec(' ' + s))) { d = +m[1]; mo = +m[2]; y = m[3] ? +m[3] : 0; }
     else if ((m = /(\d{1,2})[\s-]+([a-zа-я']{3,})\.?(?:[\s,]+(\d{4}))?/.exec(s))) {
