@@ -228,10 +228,26 @@ var App = (function () {
     if (homeStatus === 'added') return '<div class="row">' + icon('check') + '<div class="row-main"><div class="row-title">Значок на экране телефона</div><div class="row-sub">уже добавлен</div></div></div>';
     return homeRowHtml(false);
   }
+  var homeWait = 0;
+  function homeHelp() {
+    var ios = /ios|macos/.test(String(tg && tg.platform));
+    var html = '<h3>Значок не появился?</h3><p class="sub">Сначала посмотрите на экран телефона — иногда значок добавляется молча.</p>';
+    html += ios
+      ? '<p><b>iPhone:</b> обновите Telegram в App Store и нажмите кнопку ещё раз — Telegram откроет окно «На экран Домой».</p>'
+      : '<p><b>Android: Telegram нужно разрешить создавать ярлыки.</b><br>Настройки телефона → Приложения → Telegram → Разрешения (или «Другие разрешения») → ' +
+        '<b>«Ярлыки на рабочем столе»</b> → Разрешить. На Xiaomi, Redmi, POCO, Huawei, Honor, Vivo, OPPO это выключено сразу после установки.<br>' +
+        'Потом вернитесь сюда и нажмите «Добавить на экран телефона» ещё раз — появится окно «Добавить», нажмите его.</p>' +
+        '<p><b>Запасной способ:</b> откройте чат с ботом → ⋮ (вверху справа) → «Добавить на главный экран». ' +
+        'Значок откроет чат, а приложение — кнопка внизу чата.</p>';
+    html += '<p class="sub">Для проверки: ' + esc(String(tg && tg.platform)) + ', Telegram ' + esc(String(tg && tg.version)) + ', статус «' + esc(homeStatus || '—') + '»</p>' +
+      '<button class="btn block" data-close>Понятно</button>';
+    var sh = UI.openSheet(html);
+    sh.el.querySelector('[data-close]').onclick = sh.close;
+  }
   function homeInit() {
     if (!homeSupported()) return;
     try {
-      tg.onEvent('homeScreenAdded', function () { homeStatus = 'added'; UI.toast('Готово: значок приложения на экране телефона'); repaint(true); });
+      tg.onEvent('homeScreenAdded', function () { clearTimeout(homeWait); homeStatus = 'added'; UI.closeSheet(); UI.toast('Готово: значок приложения на экране телефона'); repaint(true); });
       tg.checkHomeScreenStatus(function (st) { homeStatus = st || ''; repaint(); });
     } catch (e) { /* старый Telegram */ }
   }
@@ -250,7 +266,11 @@ var App = (function () {
     hint: function (el) { UI.toast(el.dataset.hint); },
     cl: function (el) { Views.saveChecklist(el); },
     role: function (el) { setRole(el.dataset.role); },
-    homeAdd: function () { try { tg.addToHomeScreen(); } catch (e) { UI.toast('Обновите Telegram — в старой версии этого нет'); } },
+    homeAdd: function () {
+      try { tg.addToHomeScreen(); } catch (e) { return homeHelp(); }
+      // Telegram не сообщил, что значок добавлен, — на многих телефонах ему просто не разрешено создавать ярлыки
+      clearTimeout(homeWait); homeWait = setTimeout(homeHelp, 6000);
+    },
     homeHide: function () { try { localStorage.setItem(HOME_HIDE, '1'); } catch (e) { /* ignore */ } repaint(true); UI.toast(state.role === 'teacher' ? 'Скрыто. Добавить значок можно в «Настройках»' : 'Скрыто'); }
   };
   function dispatch(type, e) {
