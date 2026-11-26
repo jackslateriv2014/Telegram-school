@@ -17,7 +17,7 @@
 var Logic = (function () {
   'use strict';
 
-  var VERSION = '0.8.0';
+  var VERSION = '0.9.0';
 
   // ───────────────────────── Структура листов таблицы ─────────────────────────
   // [ключ в коде, заголовок столбца в таблице, тип]
@@ -27,7 +27,7 @@ var Logic = (function () {
       ['key', 'Параметр'], ['value', 'Значение'], ['note', 'Пояснение']] },
     users: { sheet: 'Пользователи', cols: [
       ['tg_id', 'Telegram ID'], ['role', 'Роль'], ['name', 'Имя'], ['username', 'Ник в Telegram'],
-      ['student_id', 'ID ученика'], ['created_at', 'Добавлен', 'datetime']] },
+      ['student_id', 'ID ученика'], ['created_at', 'Добавлен', 'datetime'], ['ext_key', 'Ключ расширения Chrome']] },
     classes: { sheet: 'Классы', cols: [
       ['id', 'ID'], ['name', 'Название'], ['sort', 'Порядок', 'num'],
       ['top_enabled', 'Показывать топ', 'bool'], ['top_size', 'Размер топа', 'num'],
@@ -121,7 +121,7 @@ var Logic = (function () {
   // Действия, которые только читают данные (сервер выполняет их без блокировки — быстрее).
   var READ_ACTIONS = {
     'bootstrap': 1, 't.home': 1, 't.class': 1, 't.student': 1, 't.week': 1, 't.lesson': 1,
-    't.rewards': 1, 't.checks': 1, 't.journal': 1, 't.mass.preview': 1, 't.goal': 1, 's.classmate': 1, 's.shop': 1, 't.stats': 1, 's.stats': 1, 'p.stats': 1, 's.home': 1, 's.week': 1, 's.lesson': 1, 's.rewards': 1, 's.history': 1, 'p.home': 1
+    't.rewards': 1, 't.ext.info': 1, 't.checks': 1, 't.journal': 1, 't.mass.preview': 1, 't.goal': 1, 's.classmate': 1, 's.shop': 1, 't.stats': 1, 's.stats': 1, 'p.stats': 1, 's.home': 1, 's.week': 1, 's.lesson': 1, 's.rewards': 1, 's.history': 1, 'p.home': 1
   };
 
   // ───────────────────────── Маленькие помощники ─────────────────────────
@@ -1550,6 +1550,21 @@ var Logic = (function () {
   function classKey(s) {
     return normText(s).replace(/sinf|класс/g, '').replace(/[\s\-–"«»'()]/g, '').replace(/[а-я]/g, function (ch) { return CYR_LAT[ch] || ch; });
   }
+  // ─── Расширение Chrome «перенос из emaktab» ───
+  // Ключ хранится в строке учителя на листе «Пользователи». Повторный запрос — тот же ключ; renew — новый; off — отключить.
+  A['t.ext.key'] = function (db, ctx, p) {
+    var me = db.all('users').find(function (u) { return u.role === 'teacher' && same(u.tg_id, ctx.user.id); });
+    if (!me) fail('Нет доступа.');
+    if (p.off) { db.update('users', me, { ext_key: '' }); return { key: '' }; }
+    var key = str(me.ext_key);
+    if (!key || p.renew) { key = 'ext_' + randomChars(28); db.update('users', me, { ext_key: key }); }
+    return { key: key };
+  };
+  A['t.ext.info'] = function (db, ctx) {
+    return { teacher: str(ctx.settings.teacher_name) || 'Учитель', classes: classList(db).map(function (c) { return { id: c.id, name: c.name }; }),
+      subjects: str(ctx.settings.check_subjects), today: ctx.today, version: VERSION };
+  };
+
   A['t.import.classes'] = function (db, ctx, p) {
     var list = (p.classes || []).map(function (c) { return { name: str(c.name, 40), subjects: (c.subjects || []).map(function (x) { return str(x, 60); }).filter(Boolean) }; })
       .filter(function (c) { return c.name; }).slice(0, 40);
@@ -2133,6 +2148,13 @@ var Logic = (function () {
   // ctx = { user: {id, first_name, ...} из Telegram, now: Date, startParam, drive (только на сервере) }
   function handle(db, req, ctx) {
     var action = str(req && req.action), p = (req && req.params) || {};
+    if (ctx.extKey !== undefined) {
+      var ek = str(ctx.extKey);
+      var owner = ek.length >= 20 && db.all('users').find(function (u) { return u.role === 'teacher' && str(u.ext_key) === ek; });
+      if (!owner) fail('Ключ расширения не подходит. Возьмите новый в приложении: Настройки → Расширение для Chrome.');
+      if (!EXT_ACTIONS[action]) fail('Расширению это действие недоступно.');
+      ctx.user = { id: owner.tg_id, first_name: owner.name };
+    }
     if (!ctx.user || !ctx.user.id) fail('Не удалось определить пользователя Telegram.');
     ctx.now = ctx.now || new Date();
     ctx.nowStr = fmtDateTime(ctx.now);
@@ -2161,6 +2183,8 @@ var Logic = (function () {
     return res;
   }
   function isReadOnly(action) { return !!READ_ACTIONS[action]; }
+  // Что можно делать с ключом расширения Chrome (перенос из emaktab)
+  var EXT_ACTIONS = { 't.ext.info': 1, 't.import.templates': 1, 't.import.topics': 1, 't.import.multi': 1 };
 
   /**
    * Текст утреннего напоминания учителю: какие ДЗ проверить сегодня, какие проверки отменены,

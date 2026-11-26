@@ -788,6 +788,25 @@
   });
 
   // ═════════════════════════ Настройки ═════════════════════════
+  // Ключ для расширения Chrome: показать, скопировать, заменить, отключить
+  function extKeySheet(p) {
+    Api.call('t.ext.key', p).then(function (r) {
+      if (!r.key) { UI.toast('Расширение отключено'); return; }
+      var html = '<h3>Расширение для Chrome</h3><p class="sub">1. Установите расширение (папка <b>extension</b> из проекта, инструкция в docs/02-настройка.md).<br>' +
+        '2. Нажмите на значок расширения и вставьте этот ключ.<br>3. Откройте в emaktab расписание или домашние задания — внизу справа появится кнопка «В помощник».</p>' +
+        '<div class="input" style="font-family:monospace;word-break:break-all;user-select:all;margin:10px 0">' + esc(r.key) + '</div>' +
+        '<p class="sub">Ключ — как пароль: не отправляйте его ученикам. Он даёт только перенос расписания и тем из emaktab.</p>' +
+        '<div class="btn-row"><button class="btn" data-copy>' + icon('copy', 18) + ' Копировать ключ</button></div>' +
+        '<div class="btn-row"><button class="btn plain sm" data-renew>' + icon('refresh', 16) + ' Новый ключ</button><button class="btn plain sm" data-off>Отключить</button></div>';
+      var s = UI.openSheet(html);
+      s.el.addEventListener('click', function (e) {
+        if (e.target.closest('[data-copy]')) UI.copy(r.key);
+        if (e.target.closest('[data-renew]')) { s.close(); extKeySheet({ renew: true }); }
+        if (e.target.closest('[data-off]')) { s.close(); extKeySheet({ off: true }); }
+      });
+    }, function (err) { UI.toast(err.message, true); });
+  }
+
   App.screen('t.settings', {
     title: 'Настройки',
     load: function () { return Api.call('t.home'); },
@@ -806,7 +825,9 @@
           .map(function (k) {
             return '<div class="row tap" data-act="go" data-screen="t.import" data-params="' + esc(JSON.stringify({ kind: k[0] })) + '"><div class="row-main"><div class="row-title">' + k[1] +
               '</div><div class="row-sub">' + k[2] + '</div></div><span class="chev">' + icon('chev', 16) + '</span></div>';
-          }).join('') + '</div>';
+          }).join('') +
+        '<div class="row tap" data-act="extKey"><div class="row-main"><div class="row-title">Расширение для Chrome</div>' +
+        '<div class="row-sub">кнопка «В помощник» прямо на страницах emaktab — без копирования</div></div><span class="chev">' + icon('chev', 16) + '</span></div></div>';
       html += '<div class="section-title">' + icon('star', 15) + ' Игровой режим</div><div class="card" style="padding:4px 14px">' +
         tog('game_enabled', 'Уровни, значки, цель класса и украшения', 'Ученики видят свой уровень, значки, общую цель и покупают украшения для аватара; одноклассники видят аватар, уровень и значки друг друга') +
         '<div class="sub" style="margin:8px 0 6px">Цены украшений</div><div class="seg">' + [[50, 'Дешевле ½'], [100, 'Обычные'], [150, '×1,5'], [200, '×2']].map(function (x) {
@@ -833,6 +854,7 @@
     },
     actions: {
       ps: function (el) { var p = {}; p[el.dataset.key] = el.checked; App.run('t.settings.save', p, { ok: 'Сохранено' }); },
+      extKey: function () { extKeySheet({}); },
       price: function (el) { App.run('t.settings.save', { shop_price_pct: +el.dataset.v }, { ok: 'Цены сохранены' }); },
       saveProfile: function () {
         var v = function (n) { return document.querySelector('[name=' + n + ']').value; };
