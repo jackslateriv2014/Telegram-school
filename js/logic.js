@@ -17,7 +17,7 @@
 var Logic = (function () {
   'use strict';
 
-  var VERSION = '0.9.0';
+  var VERSION = '0.9.1';
 
   // ───────────────────────── Структура листов таблицы ─────────────────────────
   // [ключ в коде, заголовок столбца в таблице, тип]
@@ -2151,7 +2151,7 @@ var Logic = (function () {
     if (ctx.extKey !== undefined) {
       var ek = str(ctx.extKey);
       var owner = ek.length >= 20 && db.all('users').find(function (u) { return u.role === 'teacher' && str(u.ext_key) === ek; });
-      if (!owner) fail('Ключ расширения не подходит. Возьмите новый в приложении: Настройки → Расширение для Chrome.');
+      if (!owner) fail('Ключ расширения не подходит. Возьмите его в приложении, открытом через Telegram (не в демо-режиме): Настройки → Расширение для Chrome.');
       if (!EXT_ACTIONS[action]) fail('Расширению это действие недоступно.');
       ctx.user = { id: owner.tg_id, first_name: owner.name };
     }
