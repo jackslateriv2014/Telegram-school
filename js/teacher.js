@@ -823,6 +823,8 @@
           '<label class="switch"><input type="checkbox" data-change="ps" data-key="' + key + '"' + (t(s[key]) ? ' checked' : '') + '><span></span></label></div>';
       };
       var html = App.roleSwitcher();
+      var hr = App.homeRow();
+      if (hr) html += '<div class="card flat">' + hr + '</div>';
       html += '<div class="section-title">' + icon('clipboard', 15) + ' Мои предметы и проверка ДЗ</div><div class="card flat">' +
         '<div class="row tap" data-act="go" data-screen="t.checks">' + icon('calendar') + '<div class="row-main"><div class="row-title">Мои предметы, дни проверки, напоминания</div>' +
         '<div class="row-sub">' + esc(s.check_subjects ? 'Мои предметы: ' + s.check_subjects + ' — в расписании видны только они' : 'Выберите свои предметы — в расписании останутся только они') + '</div></div><span class="chev">' + icon('chev', 16) + '</span></div></div>';

@@ -155,7 +155,8 @@ var App = (function () {
     var head = title === null ? '' : '<div class="topline">' +
       (showBack ? '<button class="back" data-act="back" aria-label="Назад">' + icon('left') + '</button>' : '') +
       '<h1>' + esc(title) + '</h1>' + (s.right ? s.right(data, e.params) : '') + '</div>';
-    view.innerHTML = '<div class="page">' + head + s.render(data, e.params, state) + '</div>';
+    var first = state.stack.length === 1 && TABS[state.role] && TABS[state.role][0].key === e.key;
+    view.innerHTML = '<div class="page">' + head + (first ? homeBanner() : '') + s.render(data, e.params, state) + '</div>';
     if (s.mount) s.mount(view, data, e.params);
     syncChrome();
   }
@@ -207,6 +208,34 @@ var App = (function () {
     if (state.stack.length > 1 || UI.isSheetOpen()) tg.BackButton.show(); else tg.BackButton.hide();
   }
 
+  // ─── Значок приложения на экране телефона (Telegram 8.0+ умеет сам создать ярлык) ───
+  var HOME_HIDE = 'uh_home_hide', homeStatus = '';
+  function homeSupported() { try { return !!(tg && tg.initData && tg.addToHomeScreen && tg.isVersionAtLeast('8.0')); } catch (e) { return false; } }
+  function homeHidden() { try { return !!localStorage.getItem(HOME_HIDE); } catch (e) { return false; } }
+  function homeRowHtml(withHide) {
+    return '<div class="row tap" data-act="homeAdd">' + icon('home') + '<div class="row-main"><div class="row-title">Добавить на экран телефона</div>' +
+      '<div class="row-sub">значок приложения — открывать одним нажатием, без поиска в Telegram</div></div>' +
+      (withHide ? '<button class="icon-btn" data-act="homeHide" aria-label="Скрыть">' + icon('x', 16) + '</button>' : '<span class="chev">' + icon('chev', 16) + '</span>') + '</div>';
+  }
+  // Подсказка на главном экране — пока значка нет и её не скрыли
+  function homeBanner() {
+    if (!homeSupported() || homeStatus === 'added' || homeStatus === 'unsupported' || homeHidden()) return '';
+    return '<div class="card flat">' + homeRowHtml(true) + '</div>';
+  }
+  // Строка для настроек — есть всегда (если телефон умеет)
+  function homeRow() {
+    if (!homeSupported() || homeStatus === 'unsupported') return '';
+    if (homeStatus === 'added') return '<div class="row">' + icon('check') + '<div class="row-main"><div class="row-title">Значок на экране телефона</div><div class="row-sub">уже добавлен</div></div></div>';
+    return homeRowHtml(false);
+  }
+  function homeInit() {
+    if (!homeSupported()) return;
+    try {
+      tg.onEvent('homeScreenAdded', function () { homeStatus = 'added'; UI.toast('Готово: значок приложения на экране телефона'); repaint(true); });
+      tg.checkHomeScreenStatus(function (st) { homeStatus = st || ''; repaint(); });
+    } catch (e) { /* старый Telegram */ }
+  }
+
   // ─── Нажатия на кнопки (одна общая «прослушка» для всех экранов) ───
   var Global = {
     back: back,
@@ -220,7 +249,9 @@ var App = (function () {
     url: function (el) { UI.openLink(el.dataset.url); },
     hint: function (el) { UI.toast(el.dataset.hint); },
     cl: function (el) { Views.saveChecklist(el); },
-    role: function (el) { setRole(el.dataset.role); }
+    role: function (el) { setRole(el.dataset.role); },
+    homeAdd: function () { try { tg.addToHomeScreen(); } catch (e) { UI.toast('Обновите Telegram — в старой версии этого нет'); } },
+    homeHide: function () { try { localStorage.setItem(HOME_HIDE, '1'); } catch (e) { /* ignore */ } repaint(true); UI.toast(state.role === 'teacher' ? 'Скрыто. Добавить значок можно в «Настройках»' : 'Скрыто'); }
   };
   function dispatch(type, e) {
     var attr = type === 'click' ? 'act' : 'change';
@@ -265,6 +296,7 @@ var App = (function () {
         if (tg.isVersionAtLeast('6.1')) { tg.setHeaderColor('secondary_bg_color'); tg.setBackgroundColor('secondary_bg_color'); }
         if (tg.isVersionAtLeast('7.7')) tg.disableVerticalSwipes(); // чтобы свайпы в режиме урока не сворачивали приложение
         tg.BackButton.onClick(back);
+        homeInit();
       } catch (e) { /* старая версия Telegram — работаем без этих мелочей */ }
     }
     UI.onTimerEnd = function () { var s = cur && Screens[cur.key]; if (s && s.live) repaint(); };
@@ -363,7 +395,7 @@ var App = (function () {
 
   return {
     start: start, boot: boot, screen: screen, go: go, back: back, showTab: showTab, reload: reload, repaint: repaint,
-    replaceParams: replaceParams, run: run, syncBackButton: syncBackButton, action: function (name, fn) { Global[name] = fn; }, syncChrome: syncChrome, roleSwitcher: roleSwitcher,
+    replaceParams: replaceParams, run: run, syncBackButton: syncBackButton, action: function (name, fn) { Global[name] = fn; }, syncChrome: syncChrome, roleSwitcher: roleSwitcher, homeRow: homeRow,
     remember: function (e, data) { remember(cacheKey(e), data); },
     state: state, get current() { return cur; }
   };
